@@ -500,12 +500,16 @@ void GameScene::moveBallOneStep()
     QPointF newPosition = ball.position;
 
     // 先尝试 x 方向移动。
-    // 如果沿上/下支撑面滚动时被平台侧边挡住，不要让水平速度变 0 卡死；
-    // 直接恢复当前重力方向的坠落。
     //
-    // 如果当前重力向下：改成向下掉。
-    // 如果当前重力向上：改成向上掉。
-    // 如果确实还贴着完整平台，后面的 y 检测会让它自然停住，不会穿墙。
+    // 关键修正：
+    // 当小球贴着上/下支撑面横向滚动时，如果被平台边缘或内凹角落挡住，
+    // 不再直接停住。程序会允许小球沿原来的水平方向“探出去一小截”，
+    // 找到可以按当前重力方向坠落的位置，然后再开始向上/向下掉。
+    //
+    // 这样可以避免：
+    // - 球心已经到平台边缘，但视觉圆/碰撞圆还轻微碰到平台侧面；
+    // - 直接向上/下掉又撞到侧边；
+    // - 最后卡死在角落。
     if (velocity.x() != 0) {
         QPointF tryXPosition(
             ball.position.x() + velocity.x(),
@@ -515,10 +519,49 @@ void GameScene::moveBallOneStep()
         if (canBallMoveTo(tryXPosition)) {
             newPosition.setX(tryXPosition.x());
         } else {
+            bool escapedFromLedge = false;
+
             if (gravityDirection == GravityDirection::Down
                 || gravityDirection == GravityDirection::Up) {
-                velocity = velocityForGravityDirection(gravityDirection);
-            } else {
+                const double directionSign = velocity.x() > 0 ? 1.0 : -1.0;
+                QPointF fallVelocity = velocityForGravityDirection(gravityDirection);
+
+                // 最多允许探出半个格子，不会瞬移太远。
+                const int maxEscapeDistance = TILE_SIZE / 2;
+
+                for (int offset = BALL_SPEED; offset <= maxEscapeDistance; offset += BALL_SPEED) {
+                    QPointF escapePosition(
+                        ball.position.x() + directionSign * offset,
+                        ball.position.y()
+                        );
+
+                    // 中心点不能进入墙体。
+                    if (isWallAt(escapePosition)) {
+                        continue;
+                    }
+
+                    // 探出去后，下一步必须能按当前重力方向坠落。
+                    // 这里用 canBallMoveTo 检查，避免直接穿进墙里。
+                    if (canBallMoveTo(escapePosition + fallVelocity)) {
+                        newPosition = escapePosition;
+                        velocity = fallVelocity;
+                        escapedFromLedge = true;
+                        break;
+                    }
+                }
+
+                // 如果没有找到完全安全的坠落点，但当前已经没有对应支撑，
+                // 也不要卡死，至少切回重力方向，让下一帧继续尝试坠落。
+                if (!escapedFromLedge) {
+                    if ((gravityDirection == GravityDirection::Down && !isTouchingWallBelow())
+                        || (gravityDirection == GravityDirection::Up && !isTouchingWallAbove())) {
+                        velocity = fallVelocity;
+                        escapedFromLedge = true;
+                    }
+                }
+            }
+
+            if (!escapedFromLedge) {
                 velocity.setX(0);
             }
         }
@@ -830,9 +873,9 @@ bool GameScene::isWallAt(const QPointF &scenePos) const
 bool GameScene::canBallMoveTo(const QPointF &nextPosition) const
 {
     // 使用比视觉半径略小的“碰撞半径”。
-    // 视觉球半径是 14，但实际碰撞用 10，可以避免平台边缘因为球的侧边轻微重叠而卡死。
-    // TILE_SIZE 是 40，碰撞直径 20 明显小于格子边长，符合“球的直径小于网格边长”的操作体验。
-    int r = ball.radius - 4;
+    // 视觉球半径现在是 12，直径 24，约等于格子边长 40 的 0.6 倍。
+    // 实际碰撞半径再略小一些，给平台边缘和内凹角落留出空隙。
+    int r = ball.radius - 5;
 
     if (r < 1) {
         r = 1;
@@ -885,8 +928,8 @@ bool GameScene::isTouchingWallAbove() const
     }
 
     // 检测“碰撞球”的水平投影，而不是只检测球心。
-    // 这里也使用略小的支撑半径，避免视觉圆的边缘在平台侧面轻微重叠时把球卡住。
-    double supportRadius = ball.radius - 4;
+    // 这里也使用略小的支撑半径，避免视觉圆的边缘在平台侧面或内凹角落轻微重叠时把球卡住。
+    double supportRadius = ball.radius - 5;
 
     if (supportRadius < 1) {
         supportRadius = 1;
@@ -913,7 +956,8 @@ bool GameScene::isTouchingWallBelow() const
 
     // 检测“碰撞球”的水平投影，而不是只检测球心。
     // 球心刚离开平台时不会马上掉；只有碰撞投影整体离开后才按重力坠落。
-    double supportRadius = ball.radius - 4;
+    // 小球视觉尺寸已缩小到 0.6 格子宽度，边缘卡死概率会进一步降低。
+    double supportRadius = ball.radius - 5;
 
     if (supportRadius < 1) {
         supportRadius = 1;
@@ -1054,15 +1098,13 @@ void GameScene::applyGravityAfterLeavingWall()
         return;
     }
 
-    // isTouchingWallBelow / Above 现在检测的是“略小碰撞球”的水平投影。
+    // isTouchingWallBelow / Above 检测的是“略小碰撞球”的水平投影。
     //
-    // 这样可以避免两个问题：
-    // 1. 只看球心：球心刚离开平台就过早下坠，容易卡平台侧边。
-    // 2. 看完整视觉圆：视觉圆边缘轻微碰到平台侧边时，容易被误判为仍有支撑。
+    // 如果有效投影还压在支撑面上，继续滚动；
+    // 如果有效投影离开支撑面，就按当前重力方向坠落。
     //
-    // 现在的效果是：
-    // - 还有有效碰撞投影压在平台上：继续沿平台滚。
-    // - 有效碰撞投影离开平台：按当前重力方向坠落。
+    // 角落处如果水平移动被挡，moveBallOneStep() 会额外做一次
+    // “探出去一小截再坠落”的处理，避免卡在内凹角。
     if (gravityDirection == GravityDirection::Down) {
         if (!isTouchingWallBelow()) {
             velocity = velocityForGravityDirection(GravityDirection::Down);
