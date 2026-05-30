@@ -39,6 +39,7 @@ GameScene::GameScene(QObject *parent)
     , totalDataFragmentCount(0)
     , isPaused(false)
     , gameEnded(false)
+    , wasOnTrampoline(false)
     , elapsedMs(0)
     , statusText(nullptr)
     , isEditMode(false)
@@ -102,6 +103,7 @@ void GameScene::loadLevel(int levelIndex)
     totalDataFragmentCount = countDataFragments();
 
     elapsedMs = 0;
+    wasOnTrampoline = false;
 
     isPaused = false;
     gameEnded = false;
@@ -244,6 +246,22 @@ void GameScene::drawMap()
                     );
 
                 addCenteredTextInRect("7", rect, Qt::white);
+            }
+            else if (TileDefs::isTrampoline(tile)) {
+                QRectF rect(
+                    x + 5,
+                    y + 10,
+                    TILE_SIZE - 10,
+                    TILE_SIZE - 20
+                    );
+
+                addRect(
+                    rect,
+                    QPen(QColor("#ff79c6")),
+                    QBrush(QColor("#d63384"))
+                    );
+
+                addCenteredTextInRect("T", rect, Qt::white);
             }
             else if (TileDefs::isData(tile)) {
                 QRectF rect(
@@ -1389,8 +1407,9 @@ void GameScene::applyTileEffects()
     // 速度类机关：缓冲区、以后可以加加速区
     applySpeedEffect(currentTile);
 
-    // 方向类机关：弹射块、以后可以加反向区、一次性弹射块
+    // 方向类机关：弹射块、蹦床、以后可以加反向区、一次性弹射块
     applyBounceEffect(currentTile);
+    applyTrampolineEffect(currentTile);
 
     // 位置类机关：传送带、以后可以加传送门
     applyConveyorEffect(currentTile);
@@ -1420,6 +1439,42 @@ void GameScene::applyBounceEffect(QChar currentTile)
     gravityDirection = GravityDirection::Up;
     moveSpeed = BALL_SPEED;
     velocity = QPointF(0, -moveSpeed);
+}
+
+void GameScene::applyTrampolineEffect(QChar currentTile)
+{
+    if (!TileDefs::isTrampoline(currentTile)) {
+        wasOnTrampoline = false;
+        return;
+    }
+
+    // 同一个蹦床格子只触发一次，避免球还在格子中时每帧来回反转。
+    if (wasOnTrampoline) {
+        return;
+    }
+
+    wasOnTrampoline = true;
+
+    // 蹦床只处理竖直方向进入的球。
+    // 水平滚过蹦床不触发弹跳。
+    if (velocity.y() == 0) {
+        return;
+    }
+
+    moveSpeed = BALL_SPEED;
+
+    if (velocity.y() > 0) {
+        // 竖直向下落到蹦床：垂直弹向上方。
+        gravityDirection = GravityDirection::Up;
+        velocity = QPointF(0, -moveSpeed);
+    } else {
+        // 竖直向上撞到蹦床：对称处理，弹向下方。
+        gravityDirection = GravityDirection::Down;
+        velocity = QPointF(0, moveSpeed);
+    }
+
+    qDebug() << "Trampoline triggered. Gravity:" << gravityDirectionToString()
+             << "Velocity:" << velocity;
 }
 void GameScene::applyConveyorEffect(QChar currentTile)
 {
@@ -1643,6 +1698,7 @@ void GameScene::resetRuntimeStateForCurrentMap()
 
     elapsedMs = 0;
     gameEnded = false;
+    wasOnTrampoline = false;
 }
 
 void GameScene::selectBounceBlock()
@@ -1658,6 +1714,11 @@ void GameScene::selectSlowBlock()
 void GameScene::selectConveyorBlock()
 {
     selectEditTile(TileDefs::Conveyor);
+}
+
+void GameScene::selectTrampolineBlock()
+{
+    selectEditTile(TileDefs::Trampoline);
 }
 
 void GameScene::selectEditTile(QChar tile)
@@ -1747,8 +1808,9 @@ bool GameScene::isGridPosInMap(const QPoint &gridPos) const
 bool GameScene::isEditableMechanism(QChar tile) const
 {
     return TileDefs::isBounce(tile)
-    || TileDefs::isSlow(tile)
-        || TileDefs::isConveyor(tile);
+           || TileDefs::isSlow(tile)
+           || TileDefs::isConveyor(tile)
+           || TileDefs::isTrampoline(tile);
 }
 
 QChar GameScene::tileAtGridPos(const QPoint &gridPos) const
@@ -1833,6 +1895,10 @@ QChar GameScene::nextCandidateTile(QChar currentTile) const
     }
 
     if (TileDefs::isConveyor(currentTile)) {
+        return TileDefs::Trampoline;
+    }
+
+    if (TileDefs::isTrampoline(currentTile)) {
         return TileDefs::Empty;
     }
 
