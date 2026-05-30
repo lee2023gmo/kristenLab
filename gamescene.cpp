@@ -17,7 +17,11 @@
 #include <QGraphicsSceneMouseEvent>
 #include <QPushButton>
 #include <QGraphicsRectItem>
-
+#include <QDateTime>
+#include <QDir>
+#include <QInputDialog>
+#include <QLineEdit>
+#include <QRegularExpression>
 
 
 
@@ -50,10 +54,6 @@ GameScene::GameScene(QObject *parent)
 
     qDebug() << "Stage 14 started: LevelManager enabled.";
 }
-
-
-
-
 
 void GameScene::loadLevel(int levelIndex)
 {
@@ -988,6 +988,148 @@ void GameScene::refreshStatus()
 {
     updateStatusText();
 }
+void GameScene::saveCurrentEditedLevel()
+{
+    QWidget *parentWidget = nullptr;
+
+    if (!views().isEmpty()) {
+        parentWidget = views().first();
+    }
+
+    if (!levelManager.isValidLevelIndex(currentLevelIndex)) {
+        QMessageBox::warning(
+            parentWidget,
+            "保存失败",
+            "当前关卡编号无效，不能保存。"
+            );
+
+        setFocus();
+        return;
+    }
+
+    Level currentLevel = levelManager.levelAt(currentLevelIndex);
+
+    bool ok = false;
+
+    QString levelName = QInputDialog::getText(
+        parentWidget,
+        "保存自定义地图",
+        "请输入自定义关卡名：",
+        QLineEdit::Normal,
+        defaultCustomLevelName(),
+        &ok
+        );
+
+    if (!ok) {
+        setFocus();
+        return;
+    }
+
+    levelName = levelName.trimmed();
+
+    if (levelName.isEmpty()) {
+        QMessageBox::warning(
+            parentWidget,
+            "拒绝保存",
+            "关卡名不能为空。"
+            );
+
+        setFocus();
+        return;
+    }
+
+    // 保存“编辑后的地图”，而不是运行中被收集碎片后改变过的临时地图。
+    QStringList saveMapData;
+
+    if (!editMapData.isEmpty()) {
+        saveMapData = editMapData;
+    } else {
+        saveMapData = mapData;
+    }
+
+    Level saveLevel(
+        levelName,
+        saveMapData,
+        currentLevel.targetReverseCount,
+        candidateEditPoints
+        );
+
+    QString errorMessage;
+
+    if (!levelManager.validateLevelForSave(saveLevel, &errorMessage)) {
+        QMessageBox::warning(
+            parentWidget,
+            "拒绝保存",
+            QString("地图不合法，不能保存。\n\n错误原因：%1")
+                .arg(errorMessage)
+            );
+
+        setFocus();
+        return;
+    }
+
+    QString filePath = createCustomLevelFilePath(levelName);
+
+    if (!levelManager.saveLevelToFile(saveLevel, filePath, &errorMessage)) {
+        QMessageBox::critical(
+            parentWidget,
+            "保存失败",
+            QString("保存自定义地图失败。\n\n错误原因：%1")
+                .arg(errorMessage)
+            );
+
+        setFocus();
+        return;
+    }
+
+    // 保存后立刻重新读取一次，验证文件可读，并且内容和保存前一致。
+    Level reloadedLevel;
+
+    if (!levelManager.readLevelFromFile(filePath, &reloadedLevel, &errorMessage)) {
+        QMessageBox::warning(
+            parentWidget,
+            "保存后校验失败",
+            QString("文件已经写入，但重新读取失败。\n\n路径：%1\n\n错误原因：%2")
+                .arg(QDir::toNativeSeparators(filePath))
+                .arg(errorMessage)
+            );
+
+        setFocus();
+        return;
+    }
+
+    bool sameLevel =
+        reloadedLevel.name == saveLevel.name
+        && reloadedLevel.targetReverseCount == saveLevel.targetReverseCount
+        && reloadedLevel.mapData == saveLevel.mapData
+        && reloadedLevel.editablePoints == saveLevel.editablePoints;
+
+    if (!sameLevel) {
+        QMessageBox::warning(
+            parentWidget,
+            "保存后校验失败",
+            QString("文件已经写入，但重新读取后的内容和保存前不一致。\n\n路径：%1")
+                .arg(QDir::toNativeSeparators(filePath))
+            );
+
+        setFocus();
+        return;
+    }
+
+    // 加入当前 LevelManager，方便不重启程序也能继续切到这个自定义关卡。
+    levelManager.loadLevelFromFile(filePath);
+
+    updateStatusText();
+
+    QMessageBox::information(
+        parentWidget,
+        "保存成功",
+        QString("保存成功！\n\n保存路径：\n%1\n\n已验证：保存后的地图可以重新读取，并且内容和保存前一致。")
+            .arg(QDir::toNativeSeparators(filePath))
+        );
+
+    setFocus();
+}
 void GameScene::enterEditMode()
 {
     if (!editMapData.isEmpty()) {
@@ -1385,6 +1527,50 @@ int GameScene::calculateStars() const
     }
 
     return stars;
+}
+QString GameScene::defaultCustomLevelName() const
+{
+    if (levelManager.isValidLevelIndex(currentLevelIndex)) {
+        Level currentLevel = levelManager.levelAt(currentLevelIndex);
+        return currentLevel.name + "_自定义";
+    }
+
+    return "自定义地图";
+}
+
+QString GameScene::makeSafeFileBaseName(const QString &text) const
+{
+    QString result = text.trimmed();
+
+    result.replace(QRegularExpression("[\\\\/:*?\"<>|\\s]+"), "_");
+    result.replace(QRegularExpression("_+"), "_");
+
+    if (result.isEmpty()) {
+        result = "custom_level";
+    }
+
+    if (result.size() > 60) {
+        result = result.left(60);
+    }
+
+    return result;
+}
+
+QString GameScene::createCustomLevelFilePath(const QString &levelName) const
+{
+    QString folderPath = levelManager.customLevelFolderPath();
+
+    QDir().mkpath(folderPath);
+
+    QDir dir(folderPath);
+
+    QString timeText = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
+
+    QString fileName = QString("%1_%2.json")
+                           .arg(makeSafeFileBaseName(levelName))
+                           .arg(timeText);
+
+    return dir.filePath(fileName);
 }
 
 QString GameScene::starText(int stars) const

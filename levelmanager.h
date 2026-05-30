@@ -20,6 +20,20 @@ public:
     bool loadLevelFromFile(const QString &filePath);
     int loadLevelsFromFolder(const QString &folderPath);
 
+
+    bool readLevelFromFile(const QString &filePath,
+                           Level *level,
+                           QString *errorMessage = nullptr) const;
+
+    bool saveLevelToFile(const Level &level,
+                         const QString &filePath,
+                         QString *errorMessage = nullptr) const;
+
+    bool validateLevelForSave(const Level &level,
+                              QString *errorMessage = nullptr) const;
+
+    QString customLevelFolderPath() const;
+
 private:
     QVector<Level> levels;
 

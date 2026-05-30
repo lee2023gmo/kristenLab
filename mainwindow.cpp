@@ -28,10 +28,7 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
 
-    // 阶段 13：启动后先进入主菜单
     setupMainMenu();
-
-    qDebug() << "Stage 13 started: main menu enabled.";
 }
 
 MainWindow::~MainWindow()
@@ -170,7 +167,6 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     mainLayout->setContentsMargins(12, 12, 12, 12);
     mainLayout->setSpacing(10);
 
-    // 上方状态栏
     QFrame *statusFrame = new QFrame(central);
     statusFrame->setObjectName("statusFrame");
     statusFrame->setStyleSheet(
@@ -210,7 +206,6 @@ void MainWindow::setupGameWindow(int startLevelNumber)
 
     mainLayout->addWidget(statusFrame);
 
-    // 中间游戏画面
     gameScene = new GameScene(this);
 
     connect(gameScene,
@@ -270,7 +265,6 @@ void MainWindow::setupGameWindow(int startLevelNumber)
 
     mainLayout->addWidget(gameView, 1);
 
-    // 下方按钮栏
     QFrame *buttonFrame = new QFrame(central);
     buttonFrame->setObjectName("buttonFrame");
     buttonFrame->setStyleSheet(
@@ -300,6 +294,7 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     QPushButton *slowButton = new QPushButton("缓冲区", buttonFrame);
     QPushButton *conveyorButton = new QPushButton("传送带", buttonFrame);
     QPushButton *runButton = new QPushButton("开始运行", buttonFrame);
+    QPushButton *saveButton = new QPushButton("保存地图", buttonFrame);
 
     QPushButton *previousButton = new QPushButton("上一关", buttonFrame);
     QPushButton *restartButton = new QPushButton("重开", buttonFrame);
@@ -313,6 +308,7 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     pauseButton->setFocusPolicy(Qt::NoFocus);
     nextButton->setFocusPolicy(Qt::NoFocus);
     menuButton->setFocusPolicy(Qt::NoFocus);
+    saveButton->setFocusPolicy(Qt::NoFocus);
 
     buttonLayout->addStretch();
 
@@ -321,6 +317,12 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     buttonLayout->addWidget(slowButton);
     buttonLayout->addWidget(conveyorButton);
     buttonLayout->addWidget(runButton);
+    buttonLayout->addWidget(editButton);
+    buttonLayout->addWidget(bounceButton);
+    buttonLayout->addWidget(slowButton);
+    buttonLayout->addWidget(conveyorButton);
+    buttonLayout->addWidget(runButton);
+    buttonLayout->addWidget(saveButton);
 
     buttonLayout->addSpacing(20);
 
@@ -331,7 +333,6 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     buttonLayout->addWidget(menuButton);
 
     buttonLayout->addStretch();
-
 
     mainLayout->addWidget(buttonFrame);
 
@@ -393,6 +394,14 @@ void MainWindow::setupGameWindow(int startLevelNumber)
         gameView->setFocus();
         gameScene->setFocus();
     });
+    connect(saveButton, &QPushButton::clicked, this, [this, refocusGame]() {
+        if (gameScene != nullptr) {
+            gameScene->saveCurrentEditedLevel();
+        }
+
+        refocusGame();
+    });
+
 }
 
 void MainWindow::showLevelSelectDialog()

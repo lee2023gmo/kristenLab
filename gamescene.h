@@ -56,7 +56,7 @@ public:
     void selectBounceBlock();
     void selectSlowBlock();
     void selectConveyorBlock();
-
+    void saveCurrentEditedLevel();
 
 signals:
     void statusChanged(const QString &levelText,
@@ -171,7 +171,9 @@ private:
     bool isCandidateEditPoint(const QPoint &gridPos) const;
     QChar nextCandidateTile(QChar currentTile) const;
     void drawCandidateEditPoints();
-
+    QString defaultCustomLevelName() const;
+    QString makeSafeFileBaseName(const QString &text) const;
+    QString createCustomLevelFilePath(const QString &levelName) const;
 };
 
 #endif // GAMESCENE_H
