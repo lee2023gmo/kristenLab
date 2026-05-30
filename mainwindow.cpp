@@ -483,24 +483,8 @@ void MainWindow::showLevelSelectDialog()
 
         levelLayout->addWidget(emptyLabel);
     } else {
-        bool builtInTitleAdded = false;
-        bool customTitleAdded = false;
-
-        for (int index = 0; index < totalCount; ++index) {
+        auto addLevelButton = [&](int index) {
             Level level = previewManager.levelAt(index);
-
-            if (level.isCustomLevel) {
-                if (!customTitleAdded) {
-                    addSectionTitle("自定义关卡");
-                    customTitleAdded = true;
-                }
-            } else {
-                if (!builtInTitleAdded) {
-                    addSectionTitle("内置关卡");
-                    builtInTitleAdded = true;
-                }
-            }
-
             QString buttonText = previewManager.levelSelectTextAt(index);
 
             QPushButton *levelButton = new QPushButton(buttonText, scrollWidget);
@@ -525,6 +509,47 @@ void MainWindow::showLevelSelectDialog()
             });
 
             levelLayout->addWidget(levelButton);
+        };
+
+        bool hasBuiltInLevel = false;
+        bool hasCustomLevel = false;
+
+        for (int index = 0; index < totalCount; ++index) {
+            Level level = previewManager.levelAt(index);
+
+            if (level.isCustomLevel) {
+                hasCustomLevel = true;
+            } else {
+                hasBuiltInLevel = true;
+            }
+        }
+
+        if (hasBuiltInLevel) {
+            addSectionTitle("内置关卡");
+
+            for (int index = 0; index < totalCount; ++index) {
+                Level level = previewManager.levelAt(index);
+
+                if (level.isCustomLevel) {
+                    continue;
+                }
+
+                addLevelButton(index);
+            }
+        }
+
+        if (hasCustomLevel) {
+            addSectionTitle("自定义关卡");
+
+            for (int index = 0; index < totalCount; ++index) {
+                Level level = previewManager.levelAt(index);
+
+                if (!level.isCustomLevel) {
+                    continue;
+                }
+
+                addLevelButton(index);
+            }
         }
     }
 

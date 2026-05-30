@@ -1120,7 +1120,7 @@ void GameScene::saveCurrentEditedLevel()
     }
 
     // 加入当前 LevelManager，方便不重启程序也能继续切到这个自定义关卡。
-    levelManager.loadLevelFromFile(filePath);
+    levelManager.loadLevelFromFile(filePath, true);
 
     updateStatusText();
 

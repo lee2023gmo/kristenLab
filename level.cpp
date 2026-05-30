@@ -9,28 +9,6 @@ Level::Level()
 
 Level::Level(const QString &levelName,
              const QStringList &levelMapData,
-             int targetCount)
-    : name(levelName)
-    , mapData(levelMapData)
-    , targetReverseCount(targetCount)
-    , isCustomLevel(false)
-{
-}
-
-Level::Level(const QString &levelName,
-             const QStringList &levelMapData,
-             int targetCount,
-             const QVector<QPoint> &levelEditablePoints)
-    : name(levelName)
-    , mapData(levelMapData)
-    , targetReverseCount(targetCount)
-    , editablePoints(levelEditablePoints)
-    , isCustomLevel(false)
-{
-}
-
-Level::Level(const QString &levelName,
-             const QStringList &levelMapData,
              int targetCount,
              const QVector<QPoint> &levelEditablePoints,
              bool customLevel)
@@ -41,3 +19,4 @@ Level::Level(const QString &levelName,
     , isCustomLevel(customLevel)
 {
 }
+

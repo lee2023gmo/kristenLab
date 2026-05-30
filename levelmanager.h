@@ -17,8 +17,8 @@ public:
     bool isValidLevelIndex(int index) const;
     Level levelAt(int index) const;
 
-    bool loadLevelFromFile(const QString &filePath);
-    int loadLevelsFromFolder(const QString &folderPath);
+    bool loadLevelFromFile(const QString &filePath, bool isCustomLevel);
+    int loadLevelsFromFolder(const QString &folderPath, bool isCustomLevel);
 
 
     bool readLevelFromFile(const QString &filePath,

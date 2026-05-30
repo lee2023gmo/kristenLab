@@ -30,17 +30,19 @@ void LevelManager::loadDefaultLevels()
     qDebug() << "Built-in levels folder:" << builtInFolder;
     qDebug() << "Custom levels folder:" << customFolder;
 
-    int builtInCount = loadLevelsFromFolder(builtInFolder);
-    int customCount = loadLevelsFromFolder(customFolder);
+    int builtInCount = loadLevelsFromFolder(builtInFolder, false);
+
+    if (builtInCount == 0) {
+        qWarning() << "No built-in levels found. Loading fallback built-in level.";
+        addFallbackLevel();
+        builtInCount = 1;
+    }
+
+    int customCount = loadLevelsFromFolder(customFolder, true);
 
     qDebug() << "Built-in levels loaded:" << builtInCount;
     qDebug() << "Custom levels loaded:" << customCount;
     qDebug() << "Total valid levels:" << levels.size();
-
-    if (levels.isEmpty()) {
-        qWarning() << "No external valid levels found. Loading fallback level.";
-        addFallbackLevel();
-    }
 }
 
 int LevelManager::levelCount() const
@@ -98,7 +100,7 @@ void LevelManager::addLevelIfValid(const Level &level)
     }
 
     levels.append(level);
-    qDebug() << "Level loaded:" << level.name;
+    qDebug() << "Level loaded:" << level.name << "isCustomLevel:" << level.isCustomLevel;
 }
 
 
@@ -316,7 +318,7 @@ QString LevelManager::customLevelFolderPath() const
 {
     return levelFolderPath("custom_levels");
 }
-int LevelManager::loadLevelsFromFolder(const QString &folderPath)
+int LevelManager::loadLevelsFromFolder(const QString &folderPath, bool isCustomLevel)
 {
     QDir dir(folderPath);
 
@@ -337,7 +339,7 @@ int LevelManager::loadLevelsFromFolder(const QString &folderPath)
     int loadedCount = 0;
 
     for (const QFileInfo &fileInfo : fileList) {
-        if (loadLevelFromFile(fileInfo.absoluteFilePath())) {
+        if (loadLevelFromFile(fileInfo.absoluteFilePath(), isCustomLevel)) {
             loadedCount++;
         }
     }
@@ -345,7 +347,7 @@ int LevelManager::loadLevelsFromFolder(const QString &folderPath)
     return loadedCount;
 }
 
-bool LevelManager::loadLevelFromFile(const QString &filePath)
+bool LevelManager::loadLevelFromFile(const QString &filePath, bool isCustomLevel)
 {
     Level level;
     QString errorMessage;
@@ -355,9 +357,23 @@ bool LevelManager::loadLevelFromFile(const QString &filePath)
         return false;
     }
 
+    // 这里必须使用调用者传进来的来源标记。
+    // builtInFolder 调用时传 false，customFolder 调用时传 true。
+    // 这样关卡选择界面才能稳定分成“内置关卡 / 自定义关卡”。
+    level.isCustomLevel = isCustomLevel;
+
     levels.append(level);
+
+    qDebug() << "Level loaded:"
+             << level.name
+             << "from"
+             << filePath
+             << "isCustomLevel:"
+             << level.isCustomLevel;
+
     return true;
 }
+
 bool LevelManager::validateLevelForSave(const Level &level,
                                         QString *errorMessage) const
 {
@@ -381,7 +397,8 @@ void LevelManager::addFallbackLevel()
             "111111111111"
         },
         6,
-        editablePoints
+        editablePoints,
+        false
         ));
 }
 bool LevelManager::readLevelFromFile(const QString &filePath,
