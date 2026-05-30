@@ -411,6 +411,7 @@ void LevelEditorDialog::generateMapTable()
 
     mapTable->setCurrentCell(0, 0);
     updateMapPreview();
+    adjustEditorSizeToMap();
 }
 
 void LevelEditorDialog::setCellTile(int row, int col, QChar tile)
@@ -895,6 +896,39 @@ void LevelEditorDialog::updateMapPreview()
     mapPreviewEdit->setPlainText(mapData.join("\n"));
 }
 
+
+void LevelEditorDialog::adjustEditorSizeToMap()
+{
+    if (mapTable == nullptr || !mapTable->isVisible()) {
+        return;
+    }
+
+    const int cellSize = 42;
+    const int tableWidth = mapTable->columnCount() * cellSize + 8;
+    const int tableHeight = mapTable->rowCount() * cellSize + 8;
+
+    // 让表格区域尽量按照地图规模变大，减少绘图时滚动和边框太小的问题。
+    // 同时保留最大值，避免 30x20 地图把窗口撑得过大。
+    const int maxTableWidth = 1320;
+    const int maxTableHeight = 900;
+
+    mapTable->setMinimumWidth(qMin(tableWidth, maxTableWidth));
+    mapTable->setMinimumHeight(qMin(tableHeight, maxTableHeight));
+
+    QWidget *mapFrameWidget = mapTable->parentWidget();
+
+    if (mapFrameWidget != nullptr) {
+        mapFrameWidget->setMinimumWidth(qMin(tableWidth + 40, maxTableWidth + 60));
+        mapFrameWidget->setMinimumHeight(qMin(tableHeight + 150, maxTableHeight + 180));
+    }
+
+    int targetWindowWidth = qMin(qMax(width(), tableWidth + 120), 1500);
+    int targetWindowHeight = qMin(qMax(height(), tableHeight + 430), 1050);
+
+    resize(targetWindowWidth, targetWindowHeight);
+}
+
+
 void LevelEditorDialog::paintCellAtViewportPosition(const QPoint &position, QChar tile)
 {
     if (mapTable == nullptr || !mapTable->isVisible()) {
@@ -1251,6 +1285,7 @@ void LevelEditorDialog::loadMapDataToTable(const QStringList &mapData)
 
     mapTable->setCurrentCell(0, 0);
     updateMapPreview();
+    adjustEditorSizeToMap();
 }
 
 void LevelEditorDialog::showStageTip(const QString &actionName)

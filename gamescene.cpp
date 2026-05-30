@@ -388,7 +388,11 @@ void GameScene::updateStatusText()
         stateText = "暂停中";
     }
     else {
-        stateText = "运行中";
+        if (ball.item != nullptr && hasAnyWallContact()) {
+            stateText = "贴墙可切换";
+        } else {
+            stateText = "空中不可切换";
+        }
     }
 
 
@@ -492,30 +496,34 @@ void GameScene::moveBallOneStep()
 {
     QPointF newPosition = ball.position;
 
-    // 先尝试 x 方向移动
-    QPointF tryXPosition(
-        ball.position.x() + velocity.x(),
-        ball.position.y()
-        );
+    // 先尝试 x 方向移动。
+    // 如果下一步会撞墙，不再反弹，而是直接停住。
+    if (velocity.x() != 0) {
+        QPointF tryXPosition(
+            ball.position.x() + velocity.x(),
+            ball.position.y()
+            );
 
-    if (canBallMoveTo(tryXPosition)) {
-        newPosition.setX(tryXPosition.x());
-    } else {
-        // 保留你们当前想要的反弹逻辑
-        velocity.setX(-velocity.x());
+        if (canBallMoveTo(tryXPosition)) {
+            newPosition.setX(tryXPosition.x());
+        } else {
+            velocity.setX(0);
+        }
     }
 
-    // 再尝试 y 方向移动
-    QPointF tryYPosition(
-        newPosition.x(),
-        newPosition.y() + velocity.y()
-        );
+    // 再尝试 y 方向移动。
+    // 如果下一步会撞墙，不再反弹，而是直接停住。
+    if (velocity.y() != 0) {
+        QPointF tryYPosition(
+            newPosition.x(),
+            newPosition.y() + velocity.y()
+            );
 
-    if (canBallMoveTo(tryYPosition)) {
-        newPosition.setY(tryYPosition.y());
-    } else {
-        // 保留你们当前想要的反弹逻辑
-        velocity.setY(-velocity.y());
+        if (canBallMoveTo(tryYPosition)) {
+            newPosition.setY(tryYPosition.y());
+        } else {
+            velocity.setY(0);
+        }
     }
 
     ball.setPosition(newPosition);
@@ -571,13 +579,24 @@ void GameScene::keyPressEvent(QKeyEvent *event)
 
 void GameScene::setGravityDirection(GravityDirection newDirection)
 {
-    bool directionChanged = (gravityDirection != newDirection);
+    if (gravityDirection == newDirection) {
+        return;
+    }
+
+    if (!isGravityChangeAllowed(newDirection)) {
+        qDebug() << "Gravity change denied. New direction:"
+                 << static_cast<int>(newDirection)
+                 << "Touching walls - up:" << isTouchingWallAbove()
+                 << "down:" << isTouchingWallBelow()
+                 << "left:" << isTouchingWallLeft()
+                 << "right:" << isTouchingWallRight();
+
+        updateStatusText();
+        return;
+    }
 
     gravityDirection = newDirection;
-
-    if (directionChanged) {
-        reverseCount++;
-    }
+    reverseCount++;
 
     resetVelocityByGravity();
 
@@ -778,6 +797,178 @@ bool GameScene::canBallMoveTo(const QPointF &nextPosition) const
 
     return true;
 }
+
+
+bool GameScene::isTouchingWallAbove() const
+{
+    if (ball.item == nullptr) {
+        return false;
+    }
+
+    const double probeDistance = ball.radius + BALL_SPEED + 2.0;
+
+    return isWallAt(QPointF(
+        ball.position.x(),
+        ball.position.y() - probeDistance
+        ));
+}
+
+bool GameScene::isTouchingWallBelow() const
+{
+    if (ball.item == nullptr) {
+        return false;
+    }
+
+    const double probeDistance = ball.radius + BALL_SPEED + 2.0;
+
+    return isWallAt(QPointF(
+        ball.position.x(),
+        ball.position.y() + probeDistance
+        ));
+}
+
+bool GameScene::isTouchingWallLeft() const
+{
+    if (ball.item == nullptr) {
+        return false;
+    }
+
+    const double probeDistance = ball.radius + BALL_SPEED + 2.0;
+
+    return isWallAt(QPointF(
+        ball.position.x() - probeDistance,
+        ball.position.y()
+        ));
+}
+
+bool GameScene::isTouchingWallRight() const
+{
+    if (ball.item == nullptr) {
+        return false;
+    }
+
+    const double probeDistance = ball.radius + BALL_SPEED + 2.0;
+
+    return isWallAt(QPointF(
+        ball.position.x() + probeDistance,
+        ball.position.y()
+        ));
+}
+
+bool GameScene::hasAnyWallContact() const
+{
+    return isTouchingWallAbove()
+           || isTouchingWallBelow()
+           || isTouchingWallLeft()
+           || isTouchingWallRight();
+}
+
+QPointF GameScene::velocityForGravityDirection(GravityDirection direction) const
+{
+    int speed = moveSpeed;
+
+    if (speed <= 0) {
+        speed = BALL_SPEED;
+    }
+
+    if (direction == GravityDirection::Up) {
+        return QPointF(0, -speed);
+    }
+
+    if (direction == GravityDirection::Down) {
+        return QPointF(0, speed);
+    }
+
+    if (direction == GravityDirection::Left) {
+        return QPointF(-speed, 0);
+    }
+
+    if (direction == GravityDirection::Right) {
+        return QPointF(speed, 0);
+    }
+
+    return QPointF(0, 0);
+}
+
+bool GameScene::isGravityChangeAllowed(GravityDirection newDirection) const
+{
+    if (ball.item == nullptr) {
+        return false;
+    }
+
+    const bool touchingAbove = isTouchingWallAbove();
+    const bool touchingBelow = isTouchingWallBelow();
+    const bool touchingLeft = isTouchingWallLeft();
+    const bool touchingRight = isTouchingWallRight();
+
+    if (!touchingAbove && !touchingBelow && !touchingLeft && !touchingRight) {
+        return false;
+    }
+
+    bool allowedByContact = false;
+
+    if (newDirection == GravityDirection::Up) {
+        // 贴着下方墙时可以向上离开；贴着左右墙时可以沿墙上下滚动。
+        allowedByContact = touchingBelow || touchingLeft || touchingRight;
+    }
+    else if (newDirection == GravityDirection::Down) {
+        // 贴着上方墙时可以向下离开；贴着左右墙时可以沿墙上下滚动。
+        allowedByContact = touchingAbove || touchingLeft || touchingRight;
+    }
+    else if (newDirection == GravityDirection::Left) {
+        // 贴着右侧墙时可以向左离开；贴着上下墙时可以沿墙左右滚动。
+        allowedByContact = touchingRight || touchingAbove || touchingBelow;
+    }
+    else if (newDirection == GravityDirection::Right) {
+        // 贴着左侧墙时可以向右离开；贴着上下墙时可以沿墙左右滚动。
+        allowedByContact = touchingLeft || touchingAbove || touchingBelow;
+    }
+
+    if (!allowedByContact) {
+        return false;
+    }
+
+    // 最后再确认新方向的下一步不是直接撞进墙里。
+    QPointF nextPosition = ball.position + velocityForGravityDirection(newDirection);
+
+    return canBallMoveTo(nextPosition);
+}
+
+
+
+void GameScene::applyGravityAfterLeavingWall()
+{
+    if (ball.item == nullptr || gameEnded || isPaused) {
+        return;
+    }
+
+    // 目的：
+    // 小球贴着墙滚动时，velocity 可能是水平或垂直方向。
+    // 例如重力向上时，小球贴着上方墙向右滚动。
+    // 如果右移后上方墙消失，小球应该立刻重新按“重力向上”坠落，
+    // 而不是继续水平移动或卡在空中。
+    if (gravityDirection == GravityDirection::Up) {
+        if (!isTouchingWallAbove()) {
+            velocity = velocityForGravityDirection(GravityDirection::Up);
+        }
+    }
+    else if (gravityDirection == GravityDirection::Down) {
+        if (!isTouchingWallBelow()) {
+            velocity = velocityForGravityDirection(GravityDirection::Down);
+        }
+    }
+    else if (gravityDirection == GravityDirection::Left) {
+        if (!isTouchingWallLeft()) {
+            velocity = velocityForGravityDirection(GravityDirection::Left);
+        }
+    }
+    else if (gravityDirection == GravityDirection::Right) {
+        if (!isTouchingWallRight()) {
+            velocity = velocityForGravityDirection(GravityDirection::Right);
+        }
+    }
+}
+
 
 void GameScene::resetVelocityByGravity()
 {

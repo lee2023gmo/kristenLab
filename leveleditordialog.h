@@ -82,6 +82,7 @@ private:
     void clearMapToEmpty();
     void updateCurrentToolPreview();
     void updateMapPreview();
+    void adjustEditorSizeToMap();
     void paintCellAtViewportPosition(const QPoint &position, QChar tile);
 
     // 阶段 27：保存为 JSON 文件
