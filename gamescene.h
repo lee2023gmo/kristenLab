@@ -135,6 +135,7 @@ private:
     bool hasAnyWallContact() const;
     QPointF velocityForGravityDirection(GravityDirection direction) const;
     bool isGravityChangeAllowed(GravityDirection newDirection) const;
+    void applyGravityAfterLeavingWall();
 
     void resetVelocityByGravity();
 
