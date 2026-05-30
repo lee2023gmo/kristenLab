@@ -373,7 +373,6 @@ bool LevelManager::loadLevelFromFile(const QString &filePath, bool isCustomLevel
 
     return true;
 }
-
 bool LevelManager::validateLevelForSave(const Level &level,
                                         QString *errorMessage) const
 {

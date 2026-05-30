@@ -38,6 +38,7 @@ private:
     void setupMainMenu();
     void setupGameWindow(int startLevelNumber = 1);
     void showLevelSelectDialog();
+    void showLevelEditorDialog();
     void showHelpDialog();
     void clearGameScene();
 };

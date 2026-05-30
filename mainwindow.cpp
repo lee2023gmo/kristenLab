@@ -2,6 +2,7 @@
 #include "./ui_mainwindow.h"
 #include "gamescene.h"
 #include "levelmanager.h"
+#include "leveleditordialog.h"
 
 #include <QDebug>
 #include <QDialog>
@@ -95,6 +96,7 @@ void MainWindow::setupMainMenu()
 
     QPushButton *startButton = new QPushButton("开始游戏", central);
     QPushButton *levelButton = new QPushButton("关卡选择", central);
+    QPushButton *designerButton = new QPushButton("关卡设计师", central);
     QPushButton *helpButton = new QPushButton("操作说明", central);
     QPushButton *exitButton = new QPushButton("退出游戏", central);
 
@@ -114,11 +116,13 @@ void MainWindow::setupMainMenu()
 
     startButton->setStyleSheet(buttonStyle);
     levelButton->setStyleSheet(buttonStyle);
+    designerButton->setStyleSheet(buttonStyle);
     helpButton->setStyleSheet(buttonStyle);
     exitButton->setStyleSheet(buttonStyle);
 
     startButton->setFixedWidth(260);
     levelButton->setFixedWidth(260);
+    designerButton->setFixedWidth(260);
     helpButton->setFixedWidth(260);
     exitButton->setFixedWidth(260);
 
@@ -128,6 +132,7 @@ void MainWindow::setupMainMenu()
     mainLayout->addSpacing(30);
     mainLayout->addWidget(startButton, 0, Qt::AlignCenter);
     mainLayout->addWidget(levelButton, 0, Qt::AlignCenter);
+    mainLayout->addWidget(designerButton, 0, Qt::AlignCenter);
     mainLayout->addWidget(helpButton, 0, Qt::AlignCenter);
     mainLayout->addWidget(exitButton, 0, Qt::AlignCenter);
     mainLayout->addStretch();
@@ -140,6 +145,10 @@ void MainWindow::setupMainMenu()
 
     connect(levelButton, &QPushButton::clicked, this, [this]() {
         showLevelSelectDialog();
+    });
+
+    connect(designerButton, &QPushButton::clicked, this, [this]() {
+        showLevelEditorDialog();
     });
 
     connect(helpButton, &QPushButton::clicked, this, [this]() {
@@ -411,6 +420,13 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     });
 
 
+}
+
+
+void MainWindow::showLevelEditorDialog()
+{
+    LevelEditorDialog dialog(this);
+    dialog.exec();
 }
 
 void MainWindow::showLevelSelectDialog()

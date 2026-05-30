@@ -19,6 +19,9 @@ set(PROJECT_SOURCES
     mainwindow.h
     mainwindow.ui
 
+    leveleditordialog.cpp
+    leveleditordialog.h
+
     gamescene.cpp
     gamescene.h
 

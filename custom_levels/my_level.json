@@ -8,8 +8,8 @@
         "100006700001",
         "100000080001",
         "111111111111"
-    ]
-"editablePoints": [
+    ],
+    "editablePoints": [
     { "row": 1, "col": 3 },
     { "row": 2, "col": 5 },
     { "row": 3, "col": 8 }
