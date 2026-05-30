@@ -2,7 +2,7 @@
 #define CONSTANTS_H
 
 const int TILE_SIZE = 40;
-const int BALL_RADIUS = 14;
+const int BALL_RADIUS = 12;
 
 const int BALL_SPEED = 3;
 const int SLOW_SPEED = 1;

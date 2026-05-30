@@ -124,6 +124,7 @@ void LevelEditorDialog::setupUi()
         );
 
     QLabel *hintLabel = new QLabel(
+        "阶段 29：加入工具高亮、拖动连续绘制、右键擦除、清空地图和地图字符串预览。",
         this
         );
     hintLabel->setAlignment(Qt::AlignCenter);
@@ -994,7 +995,7 @@ QString LevelEditorDialog::safeFileName(const QString &name) const
 
     if (fileName.isEmpty()) {
         fileName = QString("custom_level_%1")
-                       .arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
+        .arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
     }
 
     fileName.replace(QRegularExpression("[\\\\/:*?\"<>|]"), "_");
@@ -1024,7 +1025,7 @@ void LevelEditorDialog::saveCurrentLevel()
 
     if (levelName.isEmpty()) {
         levelName = QString("custom_level_%1")
-                        .arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
+        .arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
     }
 
     QStringList mapData = buildMapDataFromTable();
@@ -1091,6 +1092,7 @@ void LevelEditorDialog::saveCurrentLevel()
     }
 }
 
+
 void LevelEditorDialog::importLevelFromJson()
 {
     QString filePath = QFileDialog::getOpenFileName(
@@ -1135,6 +1137,7 @@ void LevelEditorDialog::importLevelFromJson()
             .arg(filePath)
         );
 }
+
 bool LevelEditorDialog::loadLevelJsonFile(const QString &filePath,
                                           QString *name,
                                           int *targetReverseCount,
@@ -1281,7 +1284,6 @@ void LevelEditorDialog::loadMapDataToTable(const QStringList &mapData)
     }
 
     mapTable->setCurrentCell(0, 0);
-
     updateMapPreview();
     adjustEditorSizeToMap();
 }
@@ -1319,8 +1321,5 @@ void LevelEditorDialog::showStageTip(const QString &actionName)
                           .arg(tileToolTip(currentTile))
                           .arg(actionName);
 
-
-
-    QMessageBox::information(this, "阶段 31 提示", message);
-
+    QMessageBox::information(this, "阶段 29 提示", message);
 }

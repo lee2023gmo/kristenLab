@@ -500,14 +500,9 @@ void GameScene::moveBallOneStep()
     QPointF newPosition = ball.position;
 
     // 先尝试 x 方向移动。
-
-    // 如果下一步会撞墙，不再反弹，而是直接停住。
-    // 如果沿上/下支撑面滚动时被平台侧边挡住，不要让水平速度变 0 卡死；
-    // 直接恢复当前重力方向的坠落。
     //
-    // 如果当前重力向下：改成向下掉。
-    // 如果当前重力向上：改成向上掉。
-    // 如果确实还贴着完整平台，后面的 y 检测会让它自然停住，不会穿墙。
+    // 如果横向被平台侧边挡住，不直接卡死；
+    // 尝试沿原方向探出一小段，找到能按当前重力坠落的位置。
     if (velocity.x() != 0) {
         QPointF tryXPosition(
             ball.position.x() + velocity.x(),
@@ -517,18 +512,32 @@ void GameScene::moveBallOneStep()
         if (canBallMoveTo(tryXPosition)) {
             newPosition.setX(tryXPosition.x());
         } else {
-            velocity.setX(0);
+            bool escapedFromLedge = false;
+
             if (gravityDirection == GravityDirection::Down
                 || gravityDirection == GravityDirection::Up) {
-                velocity = velocityForGravityDirection(gravityDirection);
-            } else {
+                QPointF fallVelocity = velocityForGravityDirection(gravityDirection);
+
+                if (tryEscapeCornerAndFall(ball.position, fallVelocity, &newPosition)) {
+                    velocity = fallVelocity;
+                    escapedFromLedge = true;
+                }
+            }
+
+            if (!escapedFromLedge) {
                 velocity.setX(0);
             }
         }
     }
 
     // 再尝试 y 方向移动。
-    // 如果下一步会撞墙，不再反弹，而是直接停住。
+    //
+    // 这是真正修正你截图里卡死的位置：
+    // 球已经想向上/向下坠落，但 y 方向被内凹角挡住。
+    // 旧逻辑直接 velocity.y = 0，所以卡死。
+    //
+    // 新逻辑会判断：球心正上/正下是否还有真正支撑。
+    // 如果没有真正支撑，就说明只是平台侧边卡住，允许向左/右小幅脱困后继续坠落。
     if (velocity.y() != 0) {
         QPointF tryYPosition(
             newPosition.x(),
@@ -538,7 +547,32 @@ void GameScene::moveBallOneStep()
         if (canBallMoveTo(tryYPosition)) {
             newPosition.setY(tryYPosition.y());
         } else {
-            velocity.setY(0);
+            bool escapedFromCorner = false;
+
+            if (gravityDirection == GravityDirection::Up) {
+                if (!hasDirectSupportAbove()) {
+                    QPointF fallVelocity = velocityForGravityDirection(GravityDirection::Up);
+
+                    if (tryEscapeCornerAndFall(newPosition, fallVelocity, &newPosition)) {
+                        velocity = fallVelocity;
+                        escapedFromCorner = true;
+                    }
+                }
+            }
+            else if (gravityDirection == GravityDirection::Down) {
+                if (!hasDirectSupportBelow()) {
+                    QPointF fallVelocity = velocityForGravityDirection(GravityDirection::Down);
+
+                    if (tryEscapeCornerAndFall(newPosition, fallVelocity, &newPosition)) {
+                        velocity = fallVelocity;
+                        escapedFromCorner = true;
+                    }
+                }
+            }
+
+            if (!escapedFromCorner) {
+                velocity.setY(0);
+            }
         }
     }
 
@@ -595,24 +629,6 @@ void GameScene::keyPressEvent(QKeyEvent *event)
 
 void GameScene::setGravityDirection(GravityDirection newDirection)
 {
-    if (gravityDirection == newDirection) {
-        return;
-    }
-
-    if (!isGravityChangeAllowed(newDirection)) {
-        qDebug() << "Gravity change denied. New direction:"
-                 << static_cast<int>(newDirection)
-                 << "Touching walls - up:" << isTouchingWallAbove()
-                 << "down:" << isTouchingWallBelow()
-                 << "left:" << isTouchingWallLeft()
-                 << "right:" << isTouchingWallRight();
-
-        updateStatusText();
-        return;
-    }
-
-    gravityDirection = newDirection;
-    reverseCount++;
     if (ball.item == nullptr || gameEnded || isPaused) {
         return;
     }
@@ -692,6 +708,7 @@ void GameScene::setGravityDirection(GravityDirection newDirection)
     if (changed) {
         reverseCount++;
     }
+
     updateStatusText();
 
     qDebug() << "Control accepted. Gravity:" << gravityDirectionToString()
@@ -849,14 +866,7 @@ bool GameScene::isWallAt(const QPointF &scenePos) const
 
 bool GameScene::canBallMoveTo(const QPointF &nextPosition) const
 {
-    // 使用比视觉半径略小的“碰撞半径”。
-    // 视觉球半径是 14，但实际碰撞用 10，可以避免平台边缘因为球的侧边轻微重叠而卡死。
-    // TILE_SIZE 是 40，碰撞直径 20 明显小于格子边长，符合“球的直径小于网格边长”的操作体验。
-    int r = ball.radius - 4;
-
-    if (r < 1) {
-        r = 1;
-    }
+    int r = collisionRadius();
 
     QPointF leftPoint(
         nextPosition.x() - r,
@@ -897,6 +907,19 @@ bool GameScene::canBallMoveTo(const QPointF &nextPosition) const
     return true;
 }
 
+int GameScene::collisionRadius() const
+{
+    // 视觉半径是 BALL_RADIUS，碰撞半径略小一点。
+    // 这样视觉上仍然是圆球，但边缘和内凹角不会因为一点点视觉重叠就卡死。
+    int r = ball.radius - 5;
+
+    if (r < 1) {
+        r = 1;
+    }
+
+    return r;
+}
+
 
 bool GameScene::isTouchingWallAbove() const
 {
@@ -904,20 +927,12 @@ bool GameScene::isTouchingWallAbove() const
         return false;
     }
 
-    const double probeDistance = ball.radius + BALL_SPEED + 1.0;
-
-    return isWallAt(QPointF(
-        ball.position.x(),
-        ball.position.y() - probeDistance
-        ));
-    // 检测“碰撞球”的水平投影，而不是只检测球心。
-    // 这里也使用略小的支撑半径，避免视觉圆的边缘在平台侧面轻微重叠时把球卡住。
-    double supportRadius = ball.radius - 4;
-
-    if (supportRadius < 1) {
-        supportRadius = 1;
-    }
-
+    // 这是“宽投影支撑检测”：只要碰撞圆的水平投影还有一部分贴着上方墙，
+    // 就认为它还在沿上方支撑面滚动。
+    //
+    // 注意：这个函数可能会把平台侧边也算成支撑。
+    // 所以后面还会用 hasDirectSupportAbove() 判断球心正上方是否真的有支撑。
+    const double supportRadius = collisionRadius();
     const double probeY = ball.position.y() - supportRadius - BALL_SPEED - 2.0;
     const double leftX = ball.position.x() - supportRadius + 1.0;
     const double rightX = ball.position.x() + supportRadius - 1.0;
@@ -937,20 +952,12 @@ bool GameScene::isTouchingWallBelow() const
         return false;
     }
 
-    const double probeDistance = ball.radius + BALL_SPEED + 1.0;
-
-    return isWallAt(QPointF(
-        ball.position.x(),
-        ball.position.y() + probeDistance
-        ));
-    // 检测“碰撞球”的水平投影，而不是只检测球心。
-    // 球心刚离开平台时不会马上掉；只有碰撞投影整体离开后才按重力坠落。
-    double supportRadius = ball.radius - 4;
-
-    if (supportRadius < 1) {
-        supportRadius = 1;
-    }
-
+    // 这是“宽投影支撑检测”：只要碰撞圆的水平投影还有一部分压着下方墙，
+    // 就认为它还在沿下方支撑面滚动。
+    //
+    // 注意：这个函数可能会把平台侧边也算成支撑。
+    // 所以后面还会用 hasDirectSupportBelow() 判断球心正下方是否真的有支撑。
+    const double supportRadius = collisionRadius();
     const double probeY = ball.position.y() + supportRadius + BALL_SPEED + 2.0;
     const double leftX = ball.position.x() - supportRadius + 1.0;
     const double rightX = ball.position.x() + supportRadius - 1.0;
@@ -963,6 +970,35 @@ bool GameScene::isTouchingWallBelow() const
 
     return isWallAt(QPointF(rightX, probeY));
 }
+
+bool GameScene::hasDirectSupportAbove() const
+{
+    if (ball.item == nullptr) {
+        return false;
+    }
+
+    const double r = collisionRadius();
+    const double probeY = ball.position.y() - r - BALL_SPEED - 2.0;
+
+    // 只看球心正上方。
+    // 如果宽投影认为有支撑，但正上方没有支撑，
+    // 多半是平台侧边/内凹角误判，需要进入脱困逻辑。
+    return isWallAt(QPointF(ball.position.x(), probeY));
+}
+
+bool GameScene::hasDirectSupportBelow() const
+{
+    if (ball.item == nullptr) {
+        return false;
+    }
+
+    const double r = collisionRadius();
+    const double probeY = ball.position.y() + r + BALL_SPEED + 2.0;
+
+    // 只看球心正下方。
+    return isWallAt(QPointF(ball.position.x(), probeY));
+}
+
 
 bool GameScene::isTouchingWallLeft() const
 {
@@ -994,10 +1030,6 @@ bool GameScene::isTouchingWallRight() const
 
 bool GameScene::hasAnyWallContact() const
 {
-    return isTouchingWallAbove()
-           || isTouchingWallBelow()
-           || isTouchingWallLeft()
-           || isTouchingWallRight();
     // 只有上方墙 / 下方墙算作可操作支撑面。
     // 左右墙不再算支撑面，避免小球吸在左右墙上。
     return isTouchingWallAbove() || isTouchingWallBelow();
@@ -1038,40 +1070,6 @@ bool GameScene::isGravityChangeAllowed(GravityDirection newDirection) const
 
     const bool touchingAbove = isTouchingWallAbove();
     const bool touchingBelow = isTouchingWallBelow();
-    const bool touchingLeft = isTouchingWallLeft();
-    const bool touchingRight = isTouchingWallRight();
-
-    if (!touchingAbove && !touchingBelow && !touchingLeft && !touchingRight) {
-        return false;
-    }
-
-    bool allowedByContact = false;
-
-    if (newDirection == GravityDirection::Up) {
-        // 贴着下方墙时可以向上离开；贴着左右墙时可以沿墙上下滚动。
-        allowedByContact = touchingBelow || touchingLeft || touchingRight;
-    }
-    else if (newDirection == GravityDirection::Down) {
-        // 贴着上方墙时可以向下离开；贴着左右墙时可以沿墙上下滚动。
-        allowedByContact = touchingAbove || touchingLeft || touchingRight;
-    }
-    else if (newDirection == GravityDirection::Left) {
-        // 贴着右侧墙时可以向左离开；贴着上下墙时可以沿墙左右滚动。
-        allowedByContact = touchingRight || touchingAbove || touchingBelow;
-    }
-    else if (newDirection == GravityDirection::Right) {
-        // 贴着左侧墙时可以向右离开；贴着上下墙时可以沿墙左右滚动。
-        allowedByContact = touchingLeft || touchingAbove || touchingBelow;
-    }
-
-    if (!allowedByContact) {
-        return false;
-    }
-
-    // 最后再确认新方向的下一步不是直接撞进墙里。
-    QPointF nextPosition = ball.position + velocityForGravityDirection(newDirection);
-
-    return canBallMoveTo(nextPosition);
 
     if (!touchingAbove && !touchingBelow) {
         return false;
@@ -1118,29 +1116,108 @@ bool GameScene::isGravityChangeAllowed(GravityDirection newDirection) const
 
 
 
+bool GameScene::tryEscapeCornerAndFall(const QPointF &basePosition,
+                                       const QPointF &fallVelocity,
+                                       QPointF *escapedPosition) const
+{
+    if (escapedPosition == nullptr) {
+        return false;
+    }
+
+    // 最多允许探出一个格子。
+    // 不是瞬移过关，而是为了让球从内凹角的侧边碰撞里脱出来。
+    const int maxEscapeDistance = TILE_SIZE;
+
+    double firstSign = 1.0;
+    double secondSign = -1.0;
+
+    if (velocity.x() < 0) {
+        firstSign = -1.0;
+        secondSign = 1.0;
+    }
+
+    for (int offset = BALL_SPEED; offset <= maxEscapeDistance; offset += BALL_SPEED) {
+        double signs[2] = { firstSign, secondSign };
+
+        for (double directionSign : signs) {
+            QPointF escapePosition(
+                basePosition.x() + directionSign * offset,
+                basePosition.y()
+                );
+
+            if (isWallAt(escapePosition)) {
+                continue;
+            }
+
+            QPointF fallPosition = escapePosition + fallVelocity;
+
+            if (canBallMoveTo(escapePosition)
+                && canBallMoveTo(fallPosition)) {
+                *escapedPosition = fallPosition;
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 void GameScene::applyGravityAfterLeavingWall()
 {
     if (ball.item == nullptr || gameEnded || isPaused) {
         return;
     }
 
-    // isTouchingWallBelow / Above 现在检测的是“略小碰撞球”的水平投影。
+    // 宽投影函数负责“还沿着平台滚动”的体验；
+    // 直接支撑函数负责判断“球心正上/正下是否真的有支撑”。
     //
-    // 这样可以避免两个问题：
-    // 1. 只看球心：球心刚离开平台就过早下坠，容易卡平台侧边。
-    // 2. 看完整视觉圆：视觉圆边缘轻微碰到平台侧边时，容易被误判为仍有支撑。
-    //
-    // 现在的效果是：
-    // - 还有有效碰撞投影压在平台上：继续沿平台滚。
-    // - 有效碰撞投影离开平台：按当前重力方向坠落。
-    if (gravityDirection == GravityDirection::Down) {
-        if (!isTouchingWallBelow()) {
-            velocity = velocityForGravityDirection(GravityDirection::Down);
+    // 关键点：
+    // 如果宽投影说有支撑，但直接支撑没有，
+    // 多半是内凹角的平台侧边误判。此时不能继续卡着，要尝试按当前重力脱困坠落。
+    if (gravityDirection == GravityDirection::Up) {
+        QPointF fallVelocity = velocityForGravityDirection(GravityDirection::Up);
+
+        if (!isTouchingWallAbove()) {
+            velocity = fallVelocity;
+            return;
+        }
+
+        if (!hasDirectSupportAbove()) {
+            if (canBallMoveTo(ball.position + fallVelocity)) {
+                velocity = fallVelocity;
+                return;
+            }
+
+            QPointF escapedPosition;
+
+            if (tryEscapeCornerAndFall(ball.position, fallVelocity, &escapedPosition)) {
+                ball.setPosition(escapedPosition);
+                velocity = fallVelocity;
+                return;
+            }
         }
     }
-    else if (gravityDirection == GravityDirection::Up) {
-        if (!isTouchingWallAbove()) {
-            velocity = velocityForGravityDirection(GravityDirection::Up);
+    else if (gravityDirection == GravityDirection::Down) {
+        QPointF fallVelocity = velocityForGravityDirection(GravityDirection::Down);
+
+        if (!isTouchingWallBelow()) {
+            velocity = fallVelocity;
+            return;
+        }
+
+        if (!hasDirectSupportBelow()) {
+            if (canBallMoveTo(ball.position + fallVelocity)) {
+                velocity = fallVelocity;
+                return;
+            }
+
+            QPointF escapedPosition;
+
+            if (tryEscapeCornerAndFall(ball.position, fallVelocity, &escapedPosition)) {
+                ball.setPosition(escapedPosition);
+                velocity = fallVelocity;
+                return;
+            }
         }
     }
     else {
