@@ -4,6 +4,7 @@
 #include <QChar>
 #include <QDialog>
 #include <QString>
+#include <QStringList>
 
 class QComboBox;
 class QLabel;
@@ -32,6 +33,7 @@ private:
     QTableWidget *mapTable;
 
     QPushButton *generateButton;
+    QPushButton *borderButton;
     QPushButton *validateButton;
     QPushButton *saveButton;
     QPushButton *closeButton;
@@ -53,6 +55,12 @@ private:
     QString tileToolTip(QChar tile) const;
     QColor tileBackgroundColor(QChar tile) const;
     QColor tileTextColor(QChar tile) const;
+
+    // 阶段 26：设计师模式地图校验
+    QStringList buildMapDataFromTable() const;
+    bool validateCurrentMap(QString *errorMessage) const;
+    void validateMapByButton();
+    void addBorderWalls();
 
     void showStageTip(const QString &actionName);
 };

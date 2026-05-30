@@ -29,6 +29,7 @@ LevelEditorDialog::LevelEditorDialog(QWidget *parent)
     , mapPlaceholderLabel(nullptr)
     , mapTable(nullptr)
     , generateButton(nullptr)
+    , borderButton(nullptr)
     , validateButton(nullptr)
     , saveButton(nullptr)
     , closeButton(nullptr)
@@ -40,7 +41,7 @@ LevelEditorDialog::LevelEditorDialog(QWidget *parent)
 void LevelEditorDialog::setupUi()
 {
     setWindowTitle("KristenLab - 关卡设计师");
-    resize(900, 720);
+    resize(940, 740);
 
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(24, 24, 24, 24);
@@ -55,7 +56,7 @@ void LevelEditorDialog::setupUi()
         );
 
     QLabel *hintLabel = new QLabel(
-        "阶段 25：选择地图元素后点击表格格子绘制。双击左键可以擦除为空地。",
+        "阶段 26：可以从表格生成 QStringList 地图数据，并检查起点、终点、非法字符等问题。",
         this
         );
     hintLabel->setAlignment(Qt::AlignCenter);
@@ -163,16 +164,19 @@ void LevelEditorDialog::setupUi()
     buttonLayout->setSpacing(10);
 
     generateButton = new QPushButton("生成地图", buttonFrame);
+    borderButton = new QPushButton("自动加边框墙", buttonFrame);
     validateButton = new QPushButton("校验地图", buttonFrame);
     saveButton = new QPushButton("保存关卡", buttonFrame);
     closeButton = new QPushButton("关闭", buttonFrame);
 
     generateButton->setMinimumHeight(36);
+    borderButton->setMinimumHeight(36);
     validateButton->setMinimumHeight(36);
     saveButton->setMinimumHeight(36);
     closeButton->setMinimumHeight(36);
 
     buttonLayout->addWidget(generateButton);
+    buttonLayout->addWidget(borderButton);
     buttonLayout->addWidget(validateButton);
     buttonLayout->addWidget(saveButton);
     buttonLayout->addStretch();
@@ -211,7 +215,7 @@ void LevelEditorDialog::setupUi()
         "color: white;"
         "border: 1px solid #4a5568;"
         "border-radius: 8px;"
-        "padding: 8px 16px;"
+        "padding: 8px 14px;"
         "font-size: 14px;"
         "}"
         "QPushButton:hover {"
@@ -238,6 +242,9 @@ void LevelEditorDialog::setupConnections()
     connect(generateButton, &QPushButton::clicked,
             this, &LevelEditorDialog::generateMapTable);
 
+    connect(borderButton, &QPushButton::clicked,
+            this, &LevelEditorDialog::addBorderWalls);
+
     connect(tileComboBox, &QComboBox::currentIndexChanged, this, [this]() {
         currentTile = currentTileFromCombo();
     });
@@ -246,18 +253,31 @@ void LevelEditorDialog::setupConnections()
         setCellTile(row, col, currentTile);
     });
 
-    // 阶段 25 修正：右键在部分系统/触控板上不稳定，
-    // 改为“双击左键”擦除当前格子为空地。
+    // 阶段 25 修正：双击左键擦除为空地。
     connect(mapTable, &QTableWidget::cellDoubleClicked, this, [this](int row, int col) {
         setCellTile(row, col, TileDefs::Empty);
     });
 
-    connect(validateButton, &QPushButton::clicked, this, [this]() {
-        showStageTip("校验地图");
-    });
+    connect(validateButton, &QPushButton::clicked,
+            this, &LevelEditorDialog::validateMapByButton);
 
     connect(saveButton, &QPushButton::clicked, this, [this]() {
-        showStageTip("保存关卡");
+        QString errorMessage;
+
+        if (!validateCurrentMap(&errorMessage)) {
+            QMessageBox::warning(
+                this,
+                "保存前校验失败",
+                "当前地图不合法，暂时不能保存。\n\n错误原因：\n" + errorMessage
+                );
+            return;
+        }
+
+        QMessageBox::information(
+            this,
+            "保存前校验通过",
+            "当前地图校验通过。\n\n阶段 27 会继续实现真正保存 JSON 文件。"
+            );
     });
 
     connect(closeButton, &QPushButton::clicked, this, &LevelEditorDialog::reject);
@@ -520,6 +540,174 @@ QColor LevelEditorDialog::tileTextColor(QChar tile) const
     return QColor("#ffffff");
 }
 
+QStringList LevelEditorDialog::buildMapDataFromTable() const
+{
+    QStringList mapData;
+
+    if (mapTable == nullptr || !mapTable->isVisible()) {
+        return mapData;
+    }
+
+    for (int row = 0; row < mapTable->rowCount(); ++row) {
+        QString line;
+
+        for (int col = 0; col < mapTable->columnCount(); ++col) {
+            line.append(cellTile(row, col));
+        }
+
+        mapData.append(line);
+    }
+
+    return mapData;
+}
+
+bool LevelEditorDialog::validateCurrentMap(QString *errorMessage) const
+{
+    QStringList mapData = buildMapDataFromTable();
+
+    if (mapData.isEmpty()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "请先点击“生成地图”，再进行校验。";
+        }
+        return false;
+    }
+
+    int expectedColumnCount = mapData[0].size();
+
+    if (expectedColumnCount == 0) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "地图第一行不能为空。";
+        }
+        return false;
+    }
+
+    int startCount = 0;
+    int endCount = 0;
+
+    for (int row = 0; row < mapData.size(); ++row) {
+        QString line = mapData[row];
+
+        if (line.size() != expectedColumnCount) {
+            if (errorMessage != nullptr) {
+                *errorMessage = QString("第 %1 行长度不一致，应该是 %2，实际是 %3。")
+                                    .arg(row + 1)
+                                    .arg(expectedColumnCount)
+                                    .arg(line.size());
+            }
+            return false;
+        }
+
+        for (int col = 0; col < line.size(); ++col) {
+            QChar tile = line[col];
+
+            if (!TileDefs::isKnownTile(tile)) {
+                if (errorMessage != nullptr) {
+                    *errorMessage = QString("第 %1 行第 %2 列出现非法字符：%3。")
+                                        .arg(row + 1)
+                                        .arg(col + 1)
+                                        .arg(tile);
+                }
+                return false;
+            }
+
+            if (TileDefs::isStart(tile)) {
+                startCount++;
+            }
+
+            if (TileDefs::isEnd(tile)) {
+                endCount++;
+            }
+        }
+    }
+
+    if (startCount == 0) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "地图缺少起点 2。请用“起点 S”工具放置一个起点。";
+        }
+        return false;
+    }
+
+    if (startCount > 1) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QString("地图只能有一个起点 2，但当前有 %1 个。").arg(startCount);
+        }
+        return false;
+    }
+
+    if (endCount == 0) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "地图至少需要一个终点 3。请用“终点 END”工具放置终点。";
+        }
+        return false;
+    }
+
+    return true;
+}
+
+void LevelEditorDialog::validateMapByButton()
+{
+    QString errorMessage;
+
+    if (!validateCurrentMap(&errorMessage)) {
+        QMessageBox::warning(
+            this,
+            "地图校验失败",
+            "当前地图不合法。\n\n错误原因：\n" + errorMessage
+            );
+        return;
+    }
+
+    QStringList mapData = buildMapDataFromTable();
+
+    QMessageBox::information(
+        this,
+        "地图校验通过",
+        QString("地图校验通过！\n\n地图大小：%1 行 × %2 列\n可以进入下一阶段保存 JSON。")
+            .arg(mapData.size())
+            .arg(mapData.isEmpty() ? 0 : mapData[0].size())
+        );
+}
+
+void LevelEditorDialog::addBorderWalls()
+{
+    if (mapTable == nullptr || !mapTable->isVisible()) {
+        QMessageBox::warning(
+            this,
+            "无法添加边框墙",
+            "请先点击“生成地图”，再添加边框墙。"
+            );
+        return;
+    }
+
+    int rowCount = mapTable->rowCount();
+    int columnCount = mapTable->columnCount();
+
+    if (rowCount <= 0 || columnCount <= 0) {
+        QMessageBox::warning(
+            this,
+            "无法添加边框墙",
+            "当前地图为空。"
+            );
+        return;
+    }
+
+    for (int col = 0; col < columnCount; ++col) {
+        setCellTile(0, col, TileDefs::Wall);
+        setCellTile(rowCount - 1, col, TileDefs::Wall);
+    }
+
+    for (int row = 0; row < rowCount; ++row) {
+        setCellTile(row, 0, TileDefs::Wall);
+        setCellTile(row, columnCount - 1, TileDefs::Wall);
+    }
+
+    QMessageBox::information(
+        this,
+        "边框墙已添加",
+        "已将第一行、最后一行、第一列、最后一列全部设置为墙体 1。"
+        );
+}
+
 void LevelEditorDialog::showStageTip(const QString &actionName)
 {
     QString levelName = nameEdit->text().trimmed();
@@ -543,8 +731,7 @@ void LevelEditorDialog::showStageTip(const QString &actionName)
                           "当前表格大小：%4\n"
                           "目标反转次数：%5\n"
                           "当前绘制元素：%6\n\n"
-                          "你点击的是：%7\n"
-                          "校验和保存功能会在后续阶段继续实现。"
+                          "你点击的是：%7"
                           )
                           .arg(levelName)
                           .arg(widthSpinBox->value())
@@ -554,5 +741,5 @@ void LevelEditorDialog::showStageTip(const QString &actionName)
                           .arg(tileToolTip(currentTile))
                           .arg(actionName);
 
-    QMessageBox::information(this, "阶段 25 提示", message);
+    QMessageBox::information(this, "阶段 26 提示", message);
 }
