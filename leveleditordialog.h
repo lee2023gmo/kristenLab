@@ -8,6 +8,7 @@ class QLabel;
 class QLineEdit;
 class QPushButton;
 class QSpinBox;
+class QTableWidget;
 
 class LevelEditorDialog : public QDialog
 {
@@ -23,6 +24,7 @@ private:
     QSpinBox *targetReverseSpinBox;
 
     QLabel *mapPlaceholderLabel;
+    QTableWidget *mapTable;
 
     QPushButton *generateButton;
     QPushButton *validateButton;
@@ -31,6 +33,10 @@ private:
 
     void setupUi();
     void setupConnections();
+
+    // 阶段 24：根据宽度和高度生成表格式地图
+    void generateMapTable();
+
     void showStageTip(const QString &actionName);
 };
 
