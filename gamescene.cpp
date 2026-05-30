@@ -16,6 +16,8 @@
 #include <QTimer>
 #include <QGraphicsSceneMouseEvent>
 #include <QPushButton>
+#include <QGraphicsRectItem>
+
 
 
 
@@ -76,6 +78,17 @@ void GameScene::loadLevel(int levelIndex)
 
     Level currentLevel = levelManager.levelAt(currentLevelIndex);
     mapData = currentLevel.mapData;
+
+    // 阶段 20：读取当前关卡的固定候选编辑点
+    candidateEditPoints = currentLevel.editablePoints;
+
+    // 如果旧 JSON 没有写 editablePoints，自动从空地里挑几个点，方便演示
+    if (candidateEditPoints.isEmpty()) {
+        candidateEditPoints = fallbackCandidateEditPoints(4);
+    }
+
+    rebuildCandidateEditPointKeys();
+
     editMapData = mapData;
     playerPlacedMechanismKeys.clear();
     isEditMode = false;
@@ -274,7 +287,12 @@ void GameScene::drawMap()
     }
 
     createBallAtStart();
+
+    // 阶段 20：编辑模式下绘制候选编辑点提示
+    drawCandidateEditPoints();
+
     createStatusText();
+
 
     qDebug() << "Stage 12 map loaded.";
     qDebug() << "Start grid position:" << startGridPos;
@@ -361,7 +379,7 @@ void GameScene::updateStatusText()
     QString stateText;
 
     if (isEditMode) {
-        stateText = QString("编辑模式：%1").arg(selectedEditTileName());
+        stateText = "候选点编辑：点击切换";
     }
     else if (gameEnded) {
         stateText = "已结束";
@@ -372,6 +390,7 @@ void GameScene::updateStatusText()
     else {
         stateText = "运行中";
     }
+
 
     QString levelName = "未知关卡";
     int targetCount = 0;
@@ -823,31 +842,16 @@ void GameScene::handleFailure()
         parentWidget = views().first();
     }
 
-    QMessageBox messageBox(parentWidget);
-    messageBox.setWindowTitle("游戏失败");
-    messageBox.setText(
-        QString("小球进入死亡区！\n\n用时：%1 秒\n反转次数：%2\n死亡次数：%3\n\n你可以重新运行，也可以返回编辑模式继续调整机关。")
+    QMessageBox::information(
+        parentWidget,
+        "游戏失败",
+        QString("小球进入死亡区！\n\n用时：%1 秒\n反转次数：%2\n死亡次数：%3\n\n现在返回编辑模式，你可以继续调整候选点机关。")
             .arg(elapsedTimeText())
             .arg(reverseCount)
             .arg(deathCount)
         );
 
-    QPushButton *restartButton = messageBox.addButton("重新运行", QMessageBox::AcceptRole);
-    QPushButton *editButton = messageBox.addButton("返回编辑模式", QMessageBox::ActionRole);
-    QPushButton *stayButton = messageBox.addButton("留在当前画面", QMessageBox::RejectRole);
-
-    messageBox.setDefaultButton(restartButton);
-    messageBox.exec();
-
-    if (messageBox.clickedButton() == restartButton) {
-        startRunMode();
-    }
-    else if (messageBox.clickedButton() == editButton) {
-        enterEditMode();
-    }
-    else if (messageBox.clickedButton() == stayButton) {
-        setFocus();
-    }
+    enterEditMode();
 }
 
 void GameScene::handleVictory()
@@ -1079,6 +1083,7 @@ QString GameScene::selectedEditTileName() const
 {
     return TileDefs::nameOf(selectedEditTile);
 }
+
 void GameScene::mousePressEvent(QGraphicsSceneMouseEvent *event)
 {
     if (!isEditMode) {
@@ -1093,38 +1098,41 @@ void GameScene::mousePressEvent(QGraphicsSceneMouseEvent *event)
         return;
     }
 
-    QString key = gridKey(gridPos);
+    // 阶段 20：只能编辑候选点
+    if (!isCandidateEditPoint(gridPos)) {
+        qDebug() << "Clicked non-candidate point:" << gridPos;
+        event->accept();
+        return;
+    }
+
     QChar currentTile = tileAtGridPos(gridPos);
 
     if (event->button() == Qt::LeftButton) {
-        if (TileDefs::isEmpty(currentTile) ||
-            playerPlacedMechanismKeys.contains(key)) {
+        QChar nextTile = nextCandidateTile(currentTile);
 
-            setTileAtGridPos(gridPos, selectedEditTile);
-            playerPlacedMechanismKeys.insert(key);
+        setTileAtGridPos(gridPos, nextTile);
 
-            redrawEditedMap();
+        redrawEditedMap();
 
-            qDebug() << "Placed mechanism at:" << gridPos
-                     << TileDefs::nameOf(selectedEditTile);
-        }
+        qDebug() << "Candidate point switched:"
+                 << gridPos
+                 << TileDefs::nameOf(currentTile)
+                 << "->"
+                 << TileDefs::nameOf(nextTile);
     }
     else if (event->button() == Qt::RightButton) {
-        if (playerPlacedMechanismKeys.contains(key) &&
-            isEditableMechanism(currentTile)) {
+        // 右键直接清空，方便演示
+        setTileAtGridPos(gridPos, TileDefs::Empty);
 
-            setTileAtGridPos(gridPos, TileDefs::Empty);
-            playerPlacedMechanismKeys.remove(key);
+        redrawEditedMap();
 
-            redrawEditedMap();
-
-            qDebug() << "Removed player mechanism at:" << gridPos;
-        }
+        qDebug() << "Candidate point reset to empty:" << gridPos;
     }
 
     event->accept();
     setFocus();
 }
+
 bool GameScene::isGridPosInMap(const QPoint &gridPos) const
 {
     int col = gridPos.x();
@@ -1179,6 +1187,114 @@ void GameScene::redrawEditedMap()
     updateStatusText();
     setFocus();
 }
+
+void GameScene::rebuildCandidateEditPointKeys()
+{
+    candidateEditPointKeys.clear();
+
+    for (const QPoint &point : candidateEditPoints) {
+        candidateEditPointKeys.insert(gridKey(point));
+    }
+}
+
+QVector<QPoint> GameScene::fallbackCandidateEditPoints(int maxCount) const
+{
+    QVector<QPoint> points;
+
+    for (int row = 0; row < mapData.size(); ++row) {
+        for (int col = 0; col < mapData[row].size(); ++col) {
+            QChar tile = mapData[row][col];
+
+            if (TileDefs::isEmpty(tile) || isEditableMechanism(tile)) {
+                points.append(QPoint(col, row));
+
+                if (points.size() >= maxCount) {
+                    return points;
+                }
+            }
+        }
+    }
+
+    return points;
+}
+
+bool GameScene::isCandidateEditPoint(const QPoint &gridPos) const
+{
+    return candidateEditPointKeys.contains(gridKey(gridPos));
+}
+
+QChar GameScene::nextCandidateTile(QChar currentTile) const
+{
+    if (TileDefs::isEmpty(currentTile)) {
+        return TileDefs::Bounce;
+    }
+
+    if (TileDefs::isBounce(currentTile)) {
+        return TileDefs::Slow;
+    }
+
+    if (TileDefs::isSlow(currentTile)) {
+        return TileDefs::Conveyor;
+    }
+
+    if (TileDefs::isConveyor(currentTile)) {
+        return TileDefs::Empty;
+    }
+
+    // 保险：如果候选点上出现了别的东西，先变成弹射块
+    return TileDefs::Bounce;
+}
+
+void GameScene::drawCandidateEditPoints()
+{
+    if (!isEditMode) {
+        return;
+    }
+
+    QPen candidatePen(QColor("#80f7ff"));
+    candidatePen.setWidth(2);
+    candidatePen.setStyle(Qt::DashLine);
+
+    QBrush candidateBrush(QColor(128, 247, 255, 45));
+
+    QFont hintFont("Microsoft YaHei", 8, QFont::Bold);
+
+    for (const QPoint &gridPos : candidateEditPoints) {
+        if (!isGridPosInMap(gridPos)) {
+            continue;
+        }
+
+        int x = gridPos.x() * TILE_SIZE;
+        int y = gridPos.y() * TILE_SIZE;
+
+        QRectF rect(
+            x + 4,
+            y + 4,
+            TILE_SIZE - 8,
+            TILE_SIZE - 8
+            );
+
+        QGraphicsRectItem *candidateRect = addRect(
+            rect,
+            candidatePen,
+            candidateBrush
+            );
+
+        candidateRect->setZValue(12);
+
+        QGraphicsSimpleTextItem *hintText = addSimpleText("可改", hintFont);
+        hintText->setBrush(QColor("#80f7ff"));
+        hintText->setZValue(13);
+
+        QRectF textRect = hintText->boundingRect();
+
+        hintText->setPos(
+            rect.center().x() - textRect.width() / 2,
+            rect.center().y() - textRect.height() / 2
+            );
+    }
+}
+
 
 int GameScene::countDataFragments() const
 {

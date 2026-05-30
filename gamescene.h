@@ -10,6 +10,9 @@
 #include <QColor>
 #include <QRectF>
 #include <QSet>
+#include <QSet>
+#include <QVector>
+
 
 #include "ball.h"
 #include "levelmanager.h"
@@ -159,6 +162,16 @@ private:
     void setTileAtGridPos(const QPoint &gridPos, QChar tile);
 
     void redrawEditedMap();
+    // 阶段 20：固定候选点编辑模式
+    QVector<QPoint> candidateEditPoints;
+    QSet<QString> candidateEditPointKeys;
+    // 阶段 20：候选点编辑模式
+    void rebuildCandidateEditPointKeys();
+    QVector<QPoint> fallbackCandidateEditPoints(int maxCount) const;
+    bool isCandidateEditPoint(const QPoint &gridPos) const;
+    QChar nextCandidateTile(QChar currentTile) const;
+    void drawCandidateEditPoints();
+
 };
 
 #endif // GAMESCENE_H

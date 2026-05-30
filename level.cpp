@@ -14,3 +14,14 @@ Level::Level(const QString &levelName,
     , targetReverseCount(targetCount)
 {
 }
+
+Level::Level(const QString &levelName,
+             const QStringList &levelMapData,
+             int targetCount,
+             const QVector<QPoint> &levelEditablePoints)
+    : name(levelName)
+    , mapData(levelMapData)
+    , targetReverseCount(targetCount)
+    , editablePoints(levelEditablePoints)
+{
+}

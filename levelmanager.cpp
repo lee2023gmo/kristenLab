@@ -10,6 +10,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
+#include <QSet>
+
 
 LevelManager::LevelManager()
 {
@@ -153,6 +155,64 @@ bool LevelManager::validateLevel(const Level &level, QString *errorMessage) cons
         return false;
     }
 
+    // 阶段 20：候选编辑点校验
+    QSet<QString> usedEditablePointKeys;
+
+    for (const QPoint &point : level.editablePoints) {
+        int col = point.x();
+        int row = point.y();
+
+        if (row < 0 || row >= level.mapData.size()) {
+            if (errorMessage != nullptr) {
+                *errorMessage = QString("候选编辑点行号越界：row=%1 col=%2")
+                                    .arg(row)
+                                    .arg(col);
+            }
+            return false;
+        }
+
+        if (col < 0 || col >= level.mapData[row].size()) {
+            if (errorMessage != nullptr) {
+                *errorMessage = QString("候选编辑点列号越界：row=%1 col=%2")
+                                    .arg(row)
+                                    .arg(col);
+            }
+            return false;
+        }
+
+        QString key = QString("%1,%2").arg(col).arg(row);
+
+        if (usedEditablePointKeys.contains(key)) {
+            if (errorMessage != nullptr) {
+                *errorMessage = QString("候选编辑点重复：row=%1 col=%2")
+                                    .arg(row)
+                                    .arg(col);
+            }
+            return false;
+        }
+
+        usedEditablePointKeys.insert(key);
+
+        QChar tile = level.mapData[row][col];
+
+        // 候选点不能放在关键结构上
+        if (TileDefs::isWall(tile)
+            || TileDefs::isStart(tile)
+            || TileDefs::isEnd(tile)
+            || TileDefs::isDeath(tile)
+            || TileDefs::isData(tile)) {
+
+            if (errorMessage != nullptr) {
+                *errorMessage = QString("候选编辑点不能放在 %1 上：row=%2 col=%3")
+                                    .arg(TileDefs::nameOf(tile))
+                                    .arg(row)
+                                    .arg(col);
+            }
+            return false;
+        }
+    }
+
+
     return true;
 }
 
@@ -293,11 +353,53 @@ bool LevelManager::loadLevelFromFile(const QString &filePath)
         mapData.append(value.toString());
     }
 
+    // 阶段 20：读取候选编辑点 editablePoints
+    QVector<QPoint> editablePoints;
+
+    QJsonValue editablePointsValue = object.value("editablePoints");
+
+    if (!editablePointsValue.isUndefined() && editablePointsValue.isArray()) {
+        QJsonArray pointsArray = editablePointsValue.toArray();
+
+        for (const QJsonValue &pointValue : pointsArray) {
+            if (pointValue.isObject()) {
+                QJsonObject pointObject = pointValue.toObject();
+
+                int row = pointObject.value("row").toInt(-1);
+                int col = pointObject.value("col").toInt(-1);
+
+                editablePoints.append(QPoint(col, row));
+            }
+            else if (pointValue.isArray()) {
+                // 兼容简写格式：[col, row]
+                QJsonArray pointArray = pointValue.toArray();
+
+                if (pointArray.size() != 2) {
+                    qWarning() << "Invalid editable point array:" << filePath;
+                    return false;
+                }
+
+                int col = pointArray[0].toInt(-1);
+                int row = pointArray[1].toInt(-1);
+
+                editablePoints.append(QPoint(col, row));
+            }
+            else {
+                qWarning() << "Invalid editable point format:" << filePath;
+                return false;
+            }
+        }
+    }
+
+
+
     Level level(
         name,
         mapData,
-        targetReverseCount
+        targetReverseCount,
+        editablePoints
         );
+
 
     QString errorMessage;
 
@@ -315,6 +417,12 @@ bool LevelManager::loadLevelFromFile(const QString &filePath)
 
 void LevelManager::addFallbackLevel()
 {
+    QVector<QPoint> editablePoints;
+
+    editablePoints.append(QPoint(3, 1));
+    editablePoints.append(QPoint(5, 2));
+    editablePoints.append(QPoint(8, 3));
+
     addLevelIfValid(Level(
         "备用关卡",
         {
@@ -324,6 +432,7 @@ void LevelManager::addFallbackLevel()
             "100000040001",
             "111111111111"
         },
-        6
+        6,
+        editablePoints
         ));
 }

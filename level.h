@@ -14,7 +14,7 @@ public:
     int targetReverseCount;
 
     // 阶段 20：固定候选编辑点
-    // QPoint(x, y) 中 x 是列 col，y 是行 row
+    // QPoint(x, y)：x 是列 col，y 是行 row
     QVector<QPoint> editablePoints;
 
     Level();
@@ -30,3 +30,4 @@ public:
 };
 
 #endif // LEVEL_H
+
