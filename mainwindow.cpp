@@ -426,6 +426,12 @@ void MainWindow::setupGameWindow(int startLevelNumber)
 void MainWindow::showLevelEditorDialog()
 {
     LevelEditorDialog dialog(this);
+
+    connect(&dialog, &LevelEditorDialog::requestOpenLevelSelect, this, [this, &dialog]() {
+        dialog.accept();
+        showLevelSelectDialog();
+    });
+
     dialog.exec();
 }
 
