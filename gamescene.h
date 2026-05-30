@@ -56,6 +56,7 @@ public:
     void selectBounceBlock();
     void selectSlowBlock();
     void selectConveyorBlock();
+    void selectTrampolineBlock();
     void saveCurrentEditedLevel();
 
 signals:
@@ -98,6 +99,7 @@ private:
 
     bool isPaused;
     bool gameEnded;
+    bool wasOnTrampoline;
 
     int elapsedMs;
 
@@ -149,6 +151,7 @@ private:
 
     void applySpeedEffect(QChar currentTile);
     void applyBounceEffect(QChar currentTile);
+    void applyTrampolineEffect(QChar currentTile);
     void applyConveyorEffect(QChar currentTile);
 
     void adjustVelocityToSpeed(int newSpeed);

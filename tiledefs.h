@@ -18,9 +18,10 @@ static const QChar Bounce = QChar('5');       // 弹射块
 static const QChar Slow = QChar('6');         // 缓冲区
 static const QChar Conveyor = QChar('7');     // 传送带
 static const QChar Data = QChar('8');         // 数据碎片
+static const QChar Trampoline = QChar('9');   // 蹦床
 
 // 以后可以继续加
-static const QChar Key = QChar('9');          // 钥匙
+static const QChar Key = QChar('K');          // 钥匙
 static const QChar Door = QChar('A');         // 门
 static const QChar Portal = QChar('B');       // 传送门
 static const QChar SpeedUp = QChar('C');      // 加速区
@@ -72,6 +73,11 @@ inline bool isData(QChar tile)
     return tile == Data;
 }
 
+inline bool isTrampoline(QChar tile)
+{
+    return tile == Trampoline;
+}
+
 inline QString nameOf(QChar tile)
 {
     if (tile == Empty) {
@@ -101,6 +107,9 @@ inline QString nameOf(QChar tile)
     if (tile == Data) {
         return "数据碎片";
     }
+    if (tile == Trampoline) {
+        return "蹦床";
+    }
 
     return "未知元素";
 }
@@ -114,7 +123,8 @@ inline bool isKnownTile(QChar tile)
            || tile == Bounce
            || tile == Slow
            || tile == Conveyor
-           || tile == Data;
+           || tile == Data
+           || tile == Trampoline;
 }
 
 }

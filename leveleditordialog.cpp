@@ -14,6 +14,7 @@
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QFrame>
+#include <QGridLayout>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QJsonArray>
@@ -22,12 +23,14 @@
 #include <QJsonParseError>
 #include <QLabel>
 #include <QLineEdit>
+#include <QList>
 #include <QMessageBox>
 #include <QPlainTextEdit>
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QSignalBlocker>
+#include <QSizePolicy>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -109,22 +112,23 @@ bool LevelEditorDialog::eventFilter(QObject *watched, QEvent *event)
 void LevelEditorDialog::setupUi()
 {
     setWindowTitle("KristenLab - 关卡设计师");
-    resize(960, 760);
+    resize(1180, 760);
+    setMinimumSize(980, 620);
 
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
-    mainLayout->setContentsMargins(24, 24, 24, 24);
-    mainLayout->setSpacing(16);
+    mainLayout->setContentsMargins(18, 18, 18, 18);
+    mainLayout->setSpacing(12);
 
     QLabel *titleLabel = new QLabel("关卡设计师", this);
     titleLabel->setAlignment(Qt::AlignCenter);
     titleLabel->setStyleSheet(
-        "font-size: 28px;"
+        "font-size: 26px;"
         "font-weight: bold;"
         "color: #80f7ff;"
         );
 
     QLabel *hintLabel = new QLabel(
-        "阶段 29：加入工具高亮、拖动连续绘制、右键擦除、清空地图和地图字符串预览。",
+        "左侧设置关卡和工具，右侧编辑地图。左键拖动连续绘制，右键拖动擦除为空地。",
         this
         );
     hintLabel->setAlignment(Qt::AlignCenter);
@@ -137,13 +141,23 @@ void LevelEditorDialog::setupUi()
     mainLayout->addWidget(titleLabel);
     mainLayout->addWidget(hintLabel);
 
+    QHBoxLayout *contentLayout = new QHBoxLayout();
+    contentLayout->setSpacing(14);
+    mainLayout->addLayout(contentLayout, 1);
+
     QFrame *infoFrame = new QFrame(this);
     infoFrame->setObjectName("infoFrame");
+    infoFrame->setFixedWidth(340);
 
-    QFormLayout *formLayout = new QFormLayout(infoFrame);
-    formLayout->setContentsMargins(18, 18, 18, 18);
-    formLayout->setSpacing(12);
+    QVBoxLayout *sideLayout = new QVBoxLayout(infoFrame);
+    sideLayout->setContentsMargins(14, 14, 14, 14);
+    sideLayout->setSpacing(12);
+
+    QFormLayout *formLayout = new QFormLayout();
+    formLayout->setContentsMargins(0, 0, 0, 0);
+    formLayout->setSpacing(10);
     formLayout->setLabelAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    formLayout->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
 
     nameEdit = new QLineEdit(infoFrame);
     nameEdit->setPlaceholderText("例如：我的设计关卡");
@@ -173,6 +187,7 @@ void LevelEditorDialog::setupUi()
     tileComboBox->addItem("缓冲区 SLOW", QString(TileDefs::Slow));
     tileComboBox->addItem("传送带 →", QString(TileDefs::Conveyor));
     tileComboBox->addItem("数据碎片 *", QString(TileDefs::Data));
+    tileComboBox->addItem("蹦床 T", QString(TileDefs::Trampoline));
     tileComboBox->setCurrentIndex(0);
 
     saveFolderComboBox = new QComboBox(infoFrame);
@@ -182,30 +197,89 @@ void LevelEditorDialog::setupUi()
 
     currentToolPreviewLabel = new QLabel(infoFrame);
     currentToolPreviewLabel->setAlignment(Qt::AlignCenter);
-    currentToolPreviewLabel->setMinimumHeight(32);
+    currentToolPreviewLabel->setMinimumHeight(34);
 
     formLayout->addRow("关卡名：", nameEdit);
-    formLayout->addRow("地图宽度：", widthSpinBox);
-    formLayout->addRow("地图高度：", heightSpinBox);
-    formLayout->addRow("目标反转次数：", targetReverseSpinBox);
-    formLayout->addRow("当前绘制元素：", tileComboBox);
-    formLayout->addRow("工具预览：", currentToolPreviewLabel);
-    formLayout->addRow("保存位置：", saveFolderComboBox);
+    formLayout->addRow("宽度：", widthSpinBox);
+    formLayout->addRow("高度：", heightSpinBox);
+    formLayout->addRow("目标：", targetReverseSpinBox);
+    formLayout->addRow("元素：", tileComboBox);
+    formLayout->addRow("预览：", currentToolPreviewLabel);
+    formLayout->addRow("保存：", saveFolderComboBox);
 
-    mainLayout->addWidget(infoFrame);
+    sideLayout->addLayout(formLayout);
+
+    QFrame *buttonFrame = new QFrame(infoFrame);
+    buttonFrame->setObjectName("buttonFrame");
+
+    QGridLayout *buttonLayout = new QGridLayout(buttonFrame);
+    buttonLayout->setContentsMargins(10, 10, 10, 10);
+    buttonLayout->setHorizontalSpacing(8);
+    buttonLayout->setVerticalSpacing(8);
+
+    generateButton = new QPushButton("生成地图", buttonFrame);
+    borderButton = new QPushButton("边框墙", buttonFrame);
+    clearButton = new QPushButton("清空", buttonFrame);
+    importButton = new QPushButton("导入 JSON", buttonFrame);
+    validateButton = new QPushButton("校验地图", buttonFrame);
+    saveButton = new QPushButton("保存关卡", buttonFrame);
+    closeButton = new QPushButton("关闭", buttonFrame);
+
+    QList<QPushButton *> buttons = {
+        generateButton,
+        borderButton,
+        clearButton,
+        importButton,
+        validateButton,
+        saveButton,
+        closeButton
+    };
+
+    for (QPushButton *button : buttons) {
+        button->setMinimumHeight(34);
+        button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    }
+
+    buttonLayout->addWidget(generateButton, 0, 0);
+    buttonLayout->addWidget(importButton, 0, 1);
+    buttonLayout->addWidget(borderButton, 1, 0);
+    buttonLayout->addWidget(clearButton, 1, 1);
+    buttonLayout->addWidget(validateButton, 2, 0);
+    buttonLayout->addWidget(saveButton, 2, 1);
+    buttonLayout->addWidget(closeButton, 3, 0, 1, 2);
+
+    sideLayout->addWidget(buttonFrame);
+
+    QLabel *sideHintLabel = new QLabel(
+        "操作提示：\n"
+        "左键拖动：绘制当前元素\n"
+        "右键拖动：擦除为空地\n"
+        "双击格子：擦除为空地\n"
+        "保存后可回到关卡选择查看",
+        infoFrame
+        );
+    sideHintLabel->setWordWrap(true);
+    sideHintLabel->setStyleSheet(
+        "font-size: 12px;"
+        "color: #94a3b8;"
+        "line-height: 150%;"
+        );
+
+    sideLayout->addWidget(sideHintLabel);
+    sideLayout->addStretch();
 
     QFrame *mapFrame = new QFrame(this);
     mapFrame->setObjectName("mapFrame");
-    mapFrame->setMinimumHeight(360);
+    mapFrame->setMinimumSize(560, 420);
+    mapFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     QVBoxLayout *mapLayout = new QVBoxLayout(mapFrame);
-    mapLayout->setContentsMargins(16, 16, 16, 16);
+    mapLayout->setContentsMargins(14, 14, 14, 14);
     mapLayout->setSpacing(10);
 
     mapPlaceholderLabel = new QLabel(
         "地图编辑区域\n\n"
-        "请输入宽度和高度，然后点击“生成地图”。\n"
-        "可以点击“生成地图”新建，也可以点击“导入 JSON”打开已有关卡。\n左键拖动连续绘制，右键拖动擦除为空地，底部会实时显示地图字符串。",
+        "点击左侧“生成地图”新建，也可以“导入 JSON”继续编辑已有关卡。",
         mapFrame
         );
     mapPlaceholderLabel->setAlignment(Qt::AlignCenter);
@@ -222,6 +296,7 @@ void LevelEditorDialog::setupUi()
     mapTable->setSelectionMode(QAbstractItemView::SingleSelection);
     mapTable->setSelectionBehavior(QAbstractItemView::SelectItems);
     mapTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    mapTable->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
     mapTable->horizontalHeader()->setVisible(false);
     mapTable->verticalHeader()->setVisible(false);
@@ -233,7 +308,7 @@ void LevelEditorDialog::setupUi()
 
     mapPreviewEdit = new QPlainTextEdit(mapFrame);
     mapPreviewEdit->setReadOnly(true);
-    mapPreviewEdit->setMaximumHeight(90);
+    mapPreviewEdit->setFixedHeight(84);
     mapPreviewEdit->setPlaceholderText("地图字符串预览会显示在这里。");
     mapPreviewEdit->setVisible(false);
 
@@ -241,41 +316,8 @@ void LevelEditorDialog::setupUi()
     mapLayout->addWidget(mapTable, 1);
     mapLayout->addWidget(mapPreviewEdit);
 
-    mainLayout->addWidget(mapFrame, 1);
-
-    QFrame *buttonFrame = new QFrame(this);
-    buttonFrame->setObjectName("buttonFrame");
-
-    QHBoxLayout *buttonLayout = new QHBoxLayout(buttonFrame);
-    buttonLayout->setContentsMargins(14, 12, 14, 12);
-    buttonLayout->setSpacing(10);
-
-    generateButton = new QPushButton("生成地图", buttonFrame);
-    borderButton = new QPushButton("自动加边框墙", buttonFrame);
-    clearButton = new QPushButton("清空为空地", buttonFrame);
-    importButton = new QPushButton("导入 JSON", buttonFrame);
-    validateButton = new QPushButton("校验地图", buttonFrame);
-    saveButton = new QPushButton("保存关卡", buttonFrame);
-    closeButton = new QPushButton("关闭", buttonFrame);
-
-    generateButton->setMinimumHeight(36);
-    borderButton->setMinimumHeight(36);
-    clearButton->setMinimumHeight(36);
-    importButton->setMinimumHeight(36);
-    validateButton->setMinimumHeight(36);
-    saveButton->setMinimumHeight(36);
-    closeButton->setMinimumHeight(36);
-
-    buttonLayout->addWidget(generateButton);
-    buttonLayout->addWidget(borderButton);
-    buttonLayout->addWidget(clearButton);
-    buttonLayout->addWidget(importButton);
-    buttonLayout->addWidget(validateButton);
-    buttonLayout->addWidget(saveButton);
-    buttonLayout->addStretch();
-    buttonLayout->addWidget(closeButton);
-
-    mainLayout->addWidget(buttonFrame);
+    contentLayout->addWidget(infoFrame);
+    contentLayout->addWidget(mapFrame, 1);
 
     setStyleSheet(
         "QDialog {"
@@ -308,7 +350,7 @@ void LevelEditorDialog::setupUi()
         "color: white;"
         "border: 1px solid #4a5568;"
         "border-radius: 8px;"
-        "padding: 8px 14px;"
+        "padding: 8px 10px;"
         "font-size: 14px;"
         "}"
         "QPushButton:hover {"
@@ -572,6 +614,10 @@ QString LevelEditorDialog::tileDisplayText(QChar tile) const
         return "*";
     }
 
+    if (TileDefs::isTrampoline(tile)) {
+        return "T";
+    }
+
     return "?";
 }
 
@@ -616,6 +662,10 @@ QColor LevelEditorDialog::tileBackgroundColor(QChar tile) const
 
     if (TileDefs::isData(tile)) {
         return QColor("#00f5d4");
+    }
+
+    if (TileDefs::isTrampoline(tile)) {
+        return QColor("#d63384");
     }
 
     return QColor("#10131f");
@@ -904,30 +954,20 @@ void LevelEditorDialog::adjustEditorSizeToMap()
     }
 
     const int cellSize = 42;
-    const int tableWidth = mapTable->columnCount() * cellSize + 8;
-    const int tableHeight = mapTable->rowCount() * cellSize + 8;
+    const int tableWidth = mapTable->columnCount() * cellSize + 28;
+    const int tableHeight = mapTable->rowCount() * cellSize + 28;
 
-    // 让表格区域尽量按照地图规模变大，减少绘图时滚动和边框太小的问题。
-    // 同时保留最大值，避免 30x20 地图把窗口撑得过大。
-    const int maxTableWidth = 1320;
-    const int maxTableHeight = 900;
+    // 只调整地图表格自身的最小尺寸，不再把整个窗口竖向撑到屏幕外。
+    // 左侧工具栏固定宽度，右侧地图区域自适应。
+    mapTable->setMinimumWidth(qMin(tableWidth, 1120));
+    mapTable->setMinimumHeight(qMin(tableHeight, 720));
 
-    mapTable->setMinimumWidth(qMin(tableWidth, maxTableWidth));
-    mapTable->setMinimumHeight(qMin(tableHeight, maxTableHeight));
-
-    QWidget *mapFrameWidget = mapTable->parentWidget();
-
-    if (mapFrameWidget != nullptr) {
-        mapFrameWidget->setMinimumWidth(qMin(tableWidth + 40, maxTableWidth + 60));
-        mapFrameWidget->setMinimumHeight(qMin(tableHeight + 150, maxTableHeight + 180));
-    }
-
-    int targetWindowWidth = qMin(qMax(width(), tableWidth + 120), 1500);
-    int targetWindowHeight = qMin(qMax(height(), tableHeight + 430), 1050);
+    const int sidePanelWidth = 340;
+    const int targetWindowWidth = qMin(qMax(width(), sidePanelWidth + tableWidth + 90), 1480);
+    const int targetWindowHeight = qMin(qMax(height(), tableHeight + 210), 900);
 
     resize(targetWindowWidth, targetWindowHeight);
 }
-
 
 void LevelEditorDialog::paintCellAtViewportPosition(const QPoint &position, QChar tile)
 {
@@ -995,7 +1035,7 @@ QString LevelEditorDialog::safeFileName(const QString &name) const
 
     if (fileName.isEmpty()) {
         fileName = QString("custom_level_%1")
-        .arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
+                       .arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
     }
 
     fileName.replace(QRegularExpression("[\\\\/:*?\"<>|]"), "_");
@@ -1025,7 +1065,7 @@ void LevelEditorDialog::saveCurrentLevel()
 
     if (levelName.isEmpty()) {
         levelName = QString("custom_level_%1")
-        .arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
+                        .arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
     }
 
     QStringList mapData = buildMapDataFromTable();

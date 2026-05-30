@@ -304,6 +304,7 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     QPushButton *bounceButton = new QPushButton("弹射块", buttonFrame);
     QPushButton *slowButton = new QPushButton("缓冲区", buttonFrame);
     QPushButton *conveyorButton = new QPushButton("传送带", buttonFrame);
+    QPushButton *trampolineButton = new QPushButton("蹦床", buttonFrame);
     QPushButton *runButton = new QPushButton("开始运行", buttonFrame);
     QPushButton *saveButton = new QPushButton("保存地图", buttonFrame);
 
@@ -320,6 +321,7 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     nextButton->setFocusPolicy(Qt::NoFocus);
     menuButton->setFocusPolicy(Qt::NoFocus);
     saveButton->setFocusPolicy(Qt::NoFocus);
+    trampolineButton->setFocusPolicy(Qt::NoFocus);
 
     buttonLayout->addStretch();
 
@@ -327,11 +329,13 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     buttonLayout->addWidget(bounceButton);
     buttonLayout->addWidget(slowButton);
     buttonLayout->addWidget(conveyorButton);
+    buttonLayout->addWidget(trampolineButton);
     buttonLayout->addWidget(runButton);
     buttonLayout->addWidget(editButton);
     buttonLayout->addWidget(bounceButton);
     buttonLayout->addWidget(slowButton);
     buttonLayout->addWidget(conveyorButton);
+    buttonLayout->addWidget(trampolineButton);
     buttonLayout->addWidget(runButton);
     buttonLayout->addWidget(saveButton);
 
@@ -396,6 +400,12 @@ void MainWindow::setupGameWindow(int startLevelNumber)
 
     connect(conveyorButton, &QPushButton::clicked, this, [this]() {
         gameScene->selectConveyorBlock();
+        gameView->setFocus();
+        gameScene->setFocus();
+    });
+
+    connect(trampolineButton, &QPushButton::clicked, this, [this]() {
+        gameScene->selectTrampolineBlock();
         gameView->setFocus();
         gameScene->setFocus();
     });
