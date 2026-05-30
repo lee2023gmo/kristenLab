@@ -33,6 +33,9 @@ private:
     QLabel *reverseLabel;
     QLabel *deathLabel;
     QLabel *stateLabel;
+    QLabel *viewZoomLabel;
+
+    double gameViewScale;
 
     // 阶段 13：主菜单和游戏界面
     void setupMainMenu();
@@ -41,6 +44,13 @@ private:
     void showLevelEditorDialog();
     void showHelpDialog();
     void clearGameScene();
+
+    void setGameViewScale(double scale);
+    void applyGameViewZoom();
+    void zoomGameViewIn();
+    void zoomGameViewOut();
+    void resetGameViewZoom();
+    void autoFitGameViewZoom();
 };
 
 #endif // MAINWINDOW_H
