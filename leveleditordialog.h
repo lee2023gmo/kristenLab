@@ -27,6 +27,7 @@ private:
     QSpinBox *targetReverseSpinBox;
 
     QComboBox *tileComboBox;
+    QComboBox *saveFolderComboBox;
     QChar currentTile;
 
     QLabel *mapPlaceholderLabel;
@@ -61,6 +62,12 @@ private:
     bool validateCurrentMap(QString *errorMessage) const;
     void validateMapByButton();
     void addBorderWalls();
+
+    // 阶段 27：保存为 JSON 文件
+    QString selectedLevelFolderPath() const;
+    QString selectedFolderName() const;
+    QString safeFileName(const QString &name) const;
+    void saveCurrentLevel();
 
     void showStageTip(const QString &actionName);
 };

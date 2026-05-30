@@ -5,14 +5,23 @@
 #include <QBrush>
 #include <QColor>
 #include <QComboBox>
+#include <QCoreApplication>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QFrame>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -25,6 +34,7 @@ LevelEditorDialog::LevelEditorDialog(QWidget *parent)
     , heightSpinBox(nullptr)
     , targetReverseSpinBox(nullptr)
     , tileComboBox(nullptr)
+    , saveFolderComboBox(nullptr)
     , currentTile(TileDefs::Empty)
     , mapPlaceholderLabel(nullptr)
     , mapTable(nullptr)
@@ -41,7 +51,7 @@ LevelEditorDialog::LevelEditorDialog(QWidget *parent)
 void LevelEditorDialog::setupUi()
 {
     setWindowTitle("KristenLab - 关卡设计师");
-    resize(940, 740);
+    resize(960, 760);
 
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(24, 24, 24, 24);
@@ -56,7 +66,7 @@ void LevelEditorDialog::setupUi()
         );
 
     QLabel *hintLabel = new QLabel(
-        "阶段 26：可以从表格生成 QStringList 地图数据，并检查起点、终点、非法字符等问题。",
+        "阶段 27：地图校验通过后，可以保存为 JSON 文件，并被关卡选择界面自动读取。",
         this
         );
     hintLabel->setAlignment(Qt::AlignCenter);
@@ -107,11 +117,17 @@ void LevelEditorDialog::setupUi()
     tileComboBox->addItem("数据碎片 *", QString(TileDefs::Data));
     tileComboBox->setCurrentIndex(0);
 
+    saveFolderComboBox = new QComboBox(infoFrame);
+    saveFolderComboBox->addItem("自定义关卡文件夹 custom_levels", "custom_levels");
+    saveFolderComboBox->addItem("内置关卡文件夹 levels", "levels");
+    saveFolderComboBox->setCurrentIndex(0);
+
     formLayout->addRow("关卡名：", nameEdit);
     formLayout->addRow("地图宽度：", widthSpinBox);
     formLayout->addRow("地图高度：", heightSpinBox);
     formLayout->addRow("目标反转次数：", targetReverseSpinBox);
     formLayout->addRow("当前绘制元素：", tileComboBox);
+    formLayout->addRow("保存位置：", saveFolderComboBox);
 
     mainLayout->addWidget(infoFrame);
 
@@ -253,7 +269,6 @@ void LevelEditorDialog::setupConnections()
         setCellTile(row, col, currentTile);
     });
 
-    // 阶段 25 修正：双击左键擦除为空地。
     connect(mapTable, &QTableWidget::cellDoubleClicked, this, [this](int row, int col) {
         setCellTile(row, col, TileDefs::Empty);
     });
@@ -261,24 +276,8 @@ void LevelEditorDialog::setupConnections()
     connect(validateButton, &QPushButton::clicked,
             this, &LevelEditorDialog::validateMapByButton);
 
-    connect(saveButton, &QPushButton::clicked, this, [this]() {
-        QString errorMessage;
-
-        if (!validateCurrentMap(&errorMessage)) {
-            QMessageBox::warning(
-                this,
-                "保存前校验失败",
-                "当前地图不合法，暂时不能保存。\n\n错误原因：\n" + errorMessage
-                );
-            return;
-        }
-
-        QMessageBox::information(
-            this,
-            "保存前校验通过",
-            "当前地图校验通过。\n\n阶段 27 会继续实现真正保存 JSON 文件。"
-            );
-    });
+    connect(saveButton, &QPushButton::clicked,
+            this, &LevelEditorDialog::saveCurrentLevel);
 
     connect(closeButton, &QPushButton::clicked, this, &LevelEditorDialog::reject);
 }
@@ -662,7 +661,7 @@ void LevelEditorDialog::validateMapByButton()
     QMessageBox::information(
         this,
         "地图校验通过",
-        QString("地图校验通过！\n\n地图大小：%1 行 × %2 列\n可以进入下一阶段保存 JSON。")
+        QString("地图校验通过！\n\n地图大小：%1 行 × %2 列\n可以保存为 JSON 文件。")
             .arg(mapData.size())
             .arg(mapData.isEmpty() ? 0 : mapData[0].size())
         );
@@ -708,6 +707,124 @@ void LevelEditorDialog::addBorderWalls()
         );
 }
 
+QString LevelEditorDialog::selectedFolderName() const
+{
+    QString folderName = saveFolderComboBox->currentData().toString();
+
+    if (folderName != "levels" && folderName != "custom_levels") {
+        folderName = "custom_levels";
+    }
+
+    return folderName;
+}
+
+QString LevelEditorDialog::selectedLevelFolderPath() const
+{
+    QDir appDir(QCoreApplication::applicationDirPath());
+    QString folderPath = appDir.filePath(selectedFolderName());
+
+    QDir().mkpath(folderPath);
+
+    return folderPath;
+}
+
+QString LevelEditorDialog::safeFileName(const QString &name) const
+{
+    QString fileName = name.trimmed();
+
+    if (fileName.isEmpty()) {
+        fileName = QString("custom_level_%1")
+                       .arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
+    }
+
+    fileName.replace(QRegularExpression("[\\\\/:*?\"<>|]"), "_");
+    fileName.replace(QRegularExpression("\\s+"), "_");
+
+    if (!fileName.endsWith(".json", Qt::CaseInsensitive)) {
+        fileName += ".json";
+    }
+
+    return fileName;
+}
+
+void LevelEditorDialog::saveCurrentLevel()
+{
+    QString errorMessage;
+
+    if (!validateCurrentMap(&errorMessage)) {
+        QMessageBox::warning(
+            this,
+            "保存失败",
+            "当前地图不合法，不能保存。\n\n错误原因：\n" + errorMessage
+            );
+        return;
+    }
+
+    QString levelName = nameEdit->text().trimmed();
+
+    if (levelName.isEmpty()) {
+        levelName = QString("custom_level_%1")
+                        .arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss"));
+    }
+
+    QStringList mapData = buildMapDataFromTable();
+
+    QJsonObject rootObject;
+    rootObject.insert("name", levelName);
+    rootObject.insert("targetReverseCount", targetReverseSpinBox->value());
+
+    QJsonArray mapArray;
+
+    for (const QString &line : mapData) {
+        mapArray.append(line);
+    }
+
+    rootObject.insert("map", mapArray);
+
+    QJsonDocument document(rootObject);
+
+    QString folderPath = selectedLevelFolderPath();
+    QString filePath = QDir(folderPath).filePath(safeFileName(levelName));
+
+    if (QFileInfo::exists(filePath)) {
+        QMessageBox::StandardButton result = QMessageBox::question(
+            this,
+            "文件已存在",
+            QString("文件已经存在：\n%1\n\n是否覆盖？").arg(filePath),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No
+            );
+
+        if (result != QMessageBox::Yes) {
+            return;
+        }
+    }
+
+    QFile file(filePath);
+
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::critical(
+            this,
+            "保存失败",
+            QString("无法写入文件：\n%1").arg(filePath)
+            );
+        return;
+    }
+
+    file.write(document.toJson(QJsonDocument::Indented));
+    file.close();
+
+    QString folderName = selectedFolderName();
+
+    QMessageBox::information(
+        this,
+        "保存成功",
+        QString("保存成功！\n\n文件已保存到 %1 文件夹。\n\n完整路径：\n%2\n\n请回到关卡选择界面查看新关卡。")
+            .arg(folderName)
+            .arg(filePath)
+        );
+}
+
 void LevelEditorDialog::showStageTip(const QString &actionName)
 {
     QString levelName = nameEdit->text().trimmed();
@@ -741,5 +858,5 @@ void LevelEditorDialog::showStageTip(const QString &actionName)
                           .arg(tileToolTip(currentTile))
                           .arg(actionName);
 
-    QMessageBox::information(this, "阶段 26 提示", message);
+    QMessageBox::information(this, "阶段 27 提示", message);
 }
