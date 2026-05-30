@@ -6,8 +6,11 @@
 #include <QString>
 #include <QStringList>
 
+class QPoint;
+
 class QComboBox;
 class QLabel;
+class QPlainTextEdit;
 class QLineEdit;
 class QPushButton;
 class QSpinBox;
@@ -20,6 +23,12 @@ class LevelEditorDialog : public QDialog
 public:
     explicit LevelEditorDialog(QWidget *parent = nullptr);
 
+signals:
+    void requestOpenLevelSelect();
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
     QLineEdit *nameEdit;
     QSpinBox *widthSpinBox;
@@ -28,13 +37,19 @@ private:
 
     QComboBox *tileComboBox;
     QComboBox *saveFolderComboBox;
+    QLabel *currentToolPreviewLabel;
     QChar currentTile;
+
+    bool isPainting;
+    bool isErasing;
 
     QLabel *mapPlaceholderLabel;
     QTableWidget *mapTable;
+    QPlainTextEdit *mapPreviewEdit;
 
     QPushButton *generateButton;
     QPushButton *borderButton;
+    QPushButton *clearButton;
     QPushButton *importButton;
     QPushButton *validateButton;
     QPushButton *saveButton;
@@ -64,6 +79,10 @@ private:
     bool validateCurrentMap(QString *errorMessage) const;
     void validateMapByButton();
     void addBorderWalls();
+    void clearMapToEmpty();
+    void updateCurrentToolPreview();
+    void updateMapPreview();
+    void paintCellAtViewportPosition(const QPoint &position, QChar tile);
 
     // 阶段 27：保存为 JSON 文件
     QString projectRootPath() const;

@@ -126,6 +126,16 @@ private:
     QChar tileAtScenePos(const QPointF &scenePos) const;
     bool isWallAt(const QPointF &scenePos) const;
     bool canBallMoveTo(const QPointF &nextPosition) const;
+
+    // 修改：贴墙后才允许改变重力方向；撞墙后不反弹
+    bool isTouchingWallAbove() const;
+    bool isTouchingWallBelow() const;
+    bool isTouchingWallLeft() const;
+    bool isTouchingWallRight() const;
+    bool hasAnyWallContact() const;
+    QPointF velocityForGravityDirection(GravityDirection direction) const;
+    bool isGravityChangeAllowed(GravityDirection newDirection) const;
+
     void resetVelocityByGravity();
 
     void applyTileEffects();
