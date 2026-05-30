@@ -245,57 +245,24 @@ bool LevelManager::validateLevel(const Level &level, QString *errorMessage) cons
 
 QString LevelManager::levelFolderPath(const QString &folderName) const
 {
-    QStringList candidatePaths;
+    QDir dir(QCoreApplication::applicationDirPath());
 
-    QDir appDir(QCoreApplication::applicationDirPath());
-    candidatePaths.append(appDir.filePath(folderName));
+    // 与关卡设计师保存路径保持一致：
+    // 从 build/Desktop_Qt_xxx-Debug 回到项目根目录，再读取 levels / custom_levels。
+    QString currentFolderName = dir.dirName();
 
-    QDir currentDir(QDir::currentPath());
-    candidatePaths.append(currentDir.filePath(folderName));
-
-    QDir searchDir(QCoreApplication::applicationDirPath());
-
-    for (int i = 0; i < 8; ++i) {
-        candidatePaths.append(searchDir.filePath(folderName));
-
-        if (!searchDir.cdUp()) {
-            break;
-        }
+    if (currentFolderName.startsWith("Desktop_", Qt::CaseInsensitive)
+        || currentFolderName.contains("Qt", Qt::CaseInsensitive)
+        || currentFolderName.contains("Debug", Qt::CaseInsensitive)
+        || currentFolderName.contains("Release", Qt::CaseInsensitive)) {
+        dir.cdUp();
     }
 
-    QString firstExistingPath;
-
-    for (const QString &path : candidatePaths) {
-        QString cleanPath = QDir::cleanPath(path);
-        QDir dir(cleanPath);
-
-        if (!dir.exists()) {
-            continue;
-        }
-
-        if (firstExistingPath.isEmpty()) {
-            firstExistingPath = cleanPath;
-        }
-
-        QStringList filters;
-        filters << "*.json";
-
-        QFileInfoList jsonFiles = dir.entryInfoList(
-            filters,
-            QDir::Files,
-            QDir::Name
-            );
-
-        if (!jsonFiles.isEmpty()) {
-            return cleanPath;
-        }
+    if (dir.dirName().compare("build", Qt::CaseInsensitive) == 0) {
+        dir.cdUp();
     }
 
-    if (!firstExistingPath.isEmpty()) {
-        return firstExistingPath;
-    }
-
-    return appDir.filePath(folderName);
+    return dir.filePath(folderName);
 }
 bool LevelManager::isFileInFolder(const QString &filePath, const QString &folderPath) const
 {

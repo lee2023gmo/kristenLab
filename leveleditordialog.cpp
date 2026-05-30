@@ -718,10 +718,34 @@ QString LevelEditorDialog::selectedFolderName() const
     return folderName;
 }
 
+QString LevelEditorDialog::projectRootPath() const
+{
+    QDir dir(QCoreApplication::applicationDirPath());
+
+    // Qt Creator 默认运行目录通常是：
+    // 项目根目录/build/Desktop_Qt_xxx-Debug
+    // 这里向上跳出 Desktop_Qt_xxx-Debug，再跳出 build，
+    // 回到真正的项目根目录。
+    QString currentFolderName = dir.dirName();
+
+    if (currentFolderName.startsWith("Desktop_", Qt::CaseInsensitive)
+        || currentFolderName.contains("Qt", Qt::CaseInsensitive)
+        || currentFolderName.contains("Debug", Qt::CaseInsensitive)
+        || currentFolderName.contains("Release", Qt::CaseInsensitive)) {
+        dir.cdUp();
+    }
+
+    if (dir.dirName().compare("build", Qt::CaseInsensitive) == 0) {
+        dir.cdUp();
+    }
+
+    return dir.absolutePath();
+}
+
 QString LevelEditorDialog::selectedLevelFolderPath() const
 {
-    QDir appDir(QCoreApplication::applicationDirPath());
-    QString folderPath = appDir.filePath(selectedFolderName());
+    QDir projectDir(projectRootPath());
+    QString folderPath = projectDir.filePath(selectedFolderName());
 
     QDir().mkpath(folderPath);
 
@@ -819,7 +843,7 @@ void LevelEditorDialog::saveCurrentLevel()
     QMessageBox::information(
         this,
         "保存成功",
-        QString("保存成功！\n\n文件已保存到 %1 文件夹。\n\n完整路径：\n%2\n\n请回到关卡选择界面查看新关卡。")
+        QString("保存成功！\n\n文件已保存到项目根目录下的 %1 文件夹。\n\n完整路径：\n%2\n\n请回到关卡选择界面查看新关卡。")
             .arg(folderName)
             .arg(filePath)
         );

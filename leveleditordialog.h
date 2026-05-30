@@ -64,6 +64,7 @@ private:
     void addBorderWalls();
 
     // 阶段 27：保存为 JSON 文件
+    QString projectRootPath() const;
     QString selectedLevelFolderPath() const;
     QString selectedFolderName() const;
     QString safeFileName(const QString &name) const;
