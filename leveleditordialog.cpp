@@ -1243,7 +1243,6 @@ void LevelEditorDialog::loadMapDataToTable(const QStringList &mapData)
     mapTable->setVisible(true);
     mapPreviewEdit->setVisible(true);
 
-
     for (int col = 0; col < columnCount; ++col) {
         mapTable->setColumnWidth(col, 42);
     }
@@ -1291,5 +1290,5 @@ void LevelEditorDialog::showStageTip(const QString &actionName)
                           .arg(actionName);
 
 
-    QMessageBox::information(this, "阶段 29 提示", message);
+    QMessageBox::information(this, "阶段 30 提示", message);
 }
