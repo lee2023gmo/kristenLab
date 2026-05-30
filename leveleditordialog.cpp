@@ -9,6 +9,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QFrame>
@@ -17,6 +18,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonParseError>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -40,6 +42,7 @@ LevelEditorDialog::LevelEditorDialog(QWidget *parent)
     , mapTable(nullptr)
     , generateButton(nullptr)
     , borderButton(nullptr)
+    , importButton(nullptr)
     , validateButton(nullptr)
     , saveButton(nullptr)
     , closeButton(nullptr)
@@ -66,7 +69,7 @@ void LevelEditorDialog::setupUi()
         );
 
     QLabel *hintLabel = new QLabel(
-        "阶段 27：地图校验通过后，可以保存为 JSON 文件，并被关卡选择界面自动读取。",
+        "阶段 28：可以导入已有 JSON 关卡继续编辑，修改后默认另存到 custom_levels。",
         this
         );
     hintLabel->setAlignment(Qt::AlignCenter);
@@ -142,7 +145,7 @@ void LevelEditorDialog::setupUi()
     mapPlaceholderLabel = new QLabel(
         "地图编辑区域\n\n"
         "请输入宽度和高度，然后点击“生成地图”。\n"
-        "生成后，选择上方元素，左键点击格子绘制，双击左键擦除为空地。",
+        "可以点击“生成地图”新建，也可以点击“导入 JSON”打开已有关卡。\n左键点击格子绘制，双击左键擦除为空地。",
         mapFrame
         );
     mapPlaceholderLabel->setAlignment(Qt::AlignCenter);
@@ -181,18 +184,21 @@ void LevelEditorDialog::setupUi()
 
     generateButton = new QPushButton("生成地图", buttonFrame);
     borderButton = new QPushButton("自动加边框墙", buttonFrame);
+    importButton = new QPushButton("导入 JSON", buttonFrame);
     validateButton = new QPushButton("校验地图", buttonFrame);
     saveButton = new QPushButton("保存关卡", buttonFrame);
     closeButton = new QPushButton("关闭", buttonFrame);
 
     generateButton->setMinimumHeight(36);
     borderButton->setMinimumHeight(36);
+    importButton->setMinimumHeight(36);
     validateButton->setMinimumHeight(36);
     saveButton->setMinimumHeight(36);
     closeButton->setMinimumHeight(36);
 
     buttonLayout->addWidget(generateButton);
     buttonLayout->addWidget(borderButton);
+    buttonLayout->addWidget(importButton);
     buttonLayout->addWidget(validateButton);
     buttonLayout->addWidget(saveButton);
     buttonLayout->addStretch();
@@ -260,6 +266,9 @@ void LevelEditorDialog::setupConnections()
 
     connect(borderButton, &QPushButton::clicked,
             this, &LevelEditorDialog::addBorderWalls);
+
+    connect(importButton, &QPushButton::clicked,
+            this, &LevelEditorDialog::importLevelFromJson);
 
     connect(tileComboBox, &QComboBox::currentIndexChanged, this, [this]() {
         currentTile = currentTileFromCombo();
@@ -560,13 +569,12 @@ QStringList LevelEditorDialog::buildMapDataFromTable() const
     return mapData;
 }
 
-bool LevelEditorDialog::validateCurrentMap(QString *errorMessage) const
-{
-    QStringList mapData = buildMapDataFromTable();
 
+bool LevelEditorDialog::validateMapData(const QStringList &mapData, QString *errorMessage) const
+{
     if (mapData.isEmpty()) {
         if (errorMessage != nullptr) {
-            *errorMessage = "请先点击“生成地图”，再进行校验。";
+            *errorMessage = "地图不能为空。";
         }
         return false;
     }
@@ -576,6 +584,20 @@ bool LevelEditorDialog::validateCurrentMap(QString *errorMessage) const
     if (expectedColumnCount == 0) {
         if (errorMessage != nullptr) {
             *errorMessage = "地图第一行不能为空。";
+        }
+        return false;
+    }
+
+    if (expectedColumnCount < 5 || expectedColumnCount > 30) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QString("地图宽度必须在 5 到 30 之间，当前是 %1。").arg(expectedColumnCount);
+        }
+        return false;
+    }
+
+    if (mapData.size() < 5 || mapData.size() > 20) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QString("地图高度必须在 5 到 20 之间，当前是 %1。").arg(mapData.size());
         }
         return false;
     }
@@ -643,6 +665,20 @@ bool LevelEditorDialog::validateCurrentMap(QString *errorMessage) const
     return true;
 }
 
+bool LevelEditorDialog::validateCurrentMap(QString *errorMessage) const
+{
+    QStringList mapData = buildMapDataFromTable();
+
+    if (mapData.isEmpty()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "请先点击“生成地图”或“导入 JSON”，再进行校验。";
+        }
+        return false;
+    }
+
+    return validateMapData(mapData, errorMessage);
+}
+
 void LevelEditorDialog::validateMapByButton()
 {
     QString errorMessage;
@@ -673,7 +709,7 @@ void LevelEditorDialog::addBorderWalls()
         QMessageBox::warning(
             this,
             "无法添加边框墙",
-            "请先点击“生成地图”，再添加边框墙。"
+            "请先点击“生成地图”或“导入 JSON”，再添加边框墙。"
             );
         return;
     }
@@ -849,6 +885,199 @@ void LevelEditorDialog::saveCurrentLevel()
         );
 }
 
+
+void LevelEditorDialog::importLevelFromJson()
+{
+    QString filePath = QFileDialog::getOpenFileName(
+        this,
+        "导入关卡 JSON",
+        projectRootPath(),
+        "JSON 文件 (*.json);;所有文件 (*.*)"
+        );
+
+    if (filePath.isEmpty()) {
+        return;
+    }
+
+    QString name;
+    int targetReverseCount = 0;
+    QStringList mapData;
+    QString errorMessage;
+
+    if (!loadLevelJsonFile(filePath, &name, &targetReverseCount, &mapData, &errorMessage)) {
+        QMessageBox::warning(
+            this,
+            "导入失败",
+            QString("无法导入该 JSON 文件。\n\n文件：\n%1\n\n错误原因：\n%2")
+                .arg(filePath)
+                .arg(errorMessage)
+            );
+        return;
+    }
+
+    nameEdit->setText(name);
+    targetReverseSpinBox->setValue(targetReverseCount);
+    loadMapDataToTable(mapData);
+
+    // 导入后默认另存到 custom_levels，避免误覆盖内置关卡。
+    saveFolderComboBox->setCurrentIndex(0);
+
+    QMessageBox::information(
+        this,
+        "导入成功",
+        QString("已成功导入关卡：%1\n\n来源文件：\n%2\n\n你可以继续编辑，修改后建议保存到 custom_levels。")
+            .arg(name)
+            .arg(filePath)
+        );
+}
+
+bool LevelEditorDialog::loadLevelJsonFile(const QString &filePath,
+                                          QString *name,
+                                          int *targetReverseCount,
+                                          QStringList *mapData,
+                                          QString *errorMessage) const
+{
+    QFile file(filePath);
+
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "无法打开文件。";
+        }
+        return false;
+    }
+
+    QByteArray jsonData = file.readAll();
+    file.close();
+
+    QJsonParseError parseError;
+    QJsonDocument document = QJsonDocument::fromJson(jsonData, &parseError);
+
+    if (parseError.error != QJsonParseError::NoError) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "JSON 解析失败：" + parseError.errorString();
+        }
+        return false;
+    }
+
+    if (!document.isObject()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "JSON 根节点必须是对象。";
+        }
+        return false;
+    }
+
+    QJsonObject object = document.object();
+
+    QString loadedName = object.value("name").toString();
+
+    if (loadedName.isEmpty()) {
+        loadedName = QFileInfo(filePath).baseName();
+    }
+
+    int loadedTargetReverseCount = object.value("targetReverseCount").toInt(0);
+
+    QJsonValue mapValue = object.value("map");
+
+    if (!mapValue.isArray()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "JSON 缺少 map 数组。";
+        }
+        return false;
+    }
+
+    QJsonArray mapArray = mapValue.toArray();
+
+    if (mapArray.isEmpty()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "map 数组不能为空。";
+        }
+        return false;
+    }
+
+    QStringList loadedMapData;
+
+    for (int i = 0; i < mapArray.size(); ++i) {
+        QJsonValue rowValue = mapArray.at(i);
+
+        if (!rowValue.isString()) {
+            if (errorMessage != nullptr) {
+                *errorMessage = QString("map 第 %1 行不是字符串。").arg(i + 1);
+            }
+            return false;
+        }
+
+        loadedMapData.append(rowValue.toString());
+    }
+
+    QString validateError;
+
+    if (!validateMapData(loadedMapData, &validateError)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "地图数据不合法：" + validateError;
+        }
+        return false;
+    }
+
+    if (name != nullptr) {
+        *name = loadedName;
+    }
+
+    if (targetReverseCount != nullptr) {
+        *targetReverseCount = loadedTargetReverseCount;
+    }
+
+    if (mapData != nullptr) {
+        *mapData = loadedMapData;
+    }
+
+    return true;
+}
+
+void LevelEditorDialog::loadMapDataToTable(const QStringList &mapData)
+{
+    if (mapData.isEmpty()) {
+        return;
+    }
+
+    const int rowCount = mapData.size();
+    const int columnCount = mapData[0].size();
+
+    widthSpinBox->setValue(columnCount);
+    heightSpinBox->setValue(rowCount);
+
+    mapTable->clear();
+    mapTable->setRowCount(rowCount);
+    mapTable->setColumnCount(columnCount);
+
+    for (int row = 0; row < rowCount; ++row) {
+        mapTable->setRowHeight(row, 42);
+
+        for (int col = 0; col < columnCount; ++col) {
+            mapTable->setColumnWidth(col, 42);
+
+            QTableWidgetItem *item = new QTableWidgetItem();
+            item->setTextAlignment(Qt::AlignCenter);
+            item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+
+            mapTable->setItem(row, col, item);
+            setCellTile(row, col, mapData[row][col]);
+        }
+    }
+
+    mapPlaceholderLabel->setVisible(false);
+    mapTable->setVisible(true);
+
+    for (int col = 0; col < columnCount; ++col) {
+        mapTable->setColumnWidth(col, 42);
+    }
+
+    for (int row = 0; row < rowCount; ++row) {
+        mapTable->setRowHeight(row, 42);
+    }
+
+    mapTable->setCurrentCell(0, 0);
+}
+
 void LevelEditorDialog::showStageTip(const QString &actionName)
 {
     QString levelName = nameEdit->text().trimmed();
@@ -882,5 +1111,5 @@ void LevelEditorDialog::showStageTip(const QString &actionName)
                           .arg(tileToolTip(currentTile))
                           .arg(actionName);
 
-    QMessageBox::information(this, "阶段 27 提示", message);
+    QMessageBox::information(this, "阶段 28 提示", message);
 }

@@ -35,6 +35,7 @@ private:
 
     QPushButton *generateButton;
     QPushButton *borderButton;
+    QPushButton *importButton;
     QPushButton *validateButton;
     QPushButton *saveButton;
     QPushButton *closeButton;
@@ -59,6 +60,7 @@ private:
 
     // 阶段 26：设计师模式地图校验
     QStringList buildMapDataFromTable() const;
+    bool validateMapData(const QStringList &mapData, QString *errorMessage) const;
     bool validateCurrentMap(QString *errorMessage) const;
     void validateMapByButton();
     void addBorderWalls();
@@ -69,6 +71,15 @@ private:
     QString selectedFolderName() const;
     QString safeFileName(const QString &name) const;
     void saveCurrentLevel();
+
+    // 阶段 28：导入已有 JSON 继续编辑
+    void importLevelFromJson();
+    bool loadLevelJsonFile(const QString &filePath,
+                           QString *name,
+                           int *targetReverseCount,
+                           QStringList *mapData,
+                           QString *errorMessage) const;
+    void loadMapDataToTable(const QStringList &mapData);
 
     void showStageTip(const QString &actionName);
 };
