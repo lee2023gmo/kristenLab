@@ -1,0 +1,34 @@
+#ifndef LEVELMANAGER_H
+#define LEVELMANAGER_H
+
+#include <QVector>
+#include <QString>
+
+#include "level.h"
+
+class LevelManager
+{
+public:
+    LevelManager();
+
+    void loadDefaultLevels();
+
+    int levelCount() const;
+    bool isValidLevelIndex(int index) const;
+    Level levelAt(int index) const;
+
+    bool loadLevelFromFile(const QString &filePath);
+    int loadLevelsFromFolder(const QString &folderPath);
+
+private:
+    QVector<Level> levels;
+
+    bool validateLevel(const Level &level, QString *errorMessage = nullptr) const;
+    void addLevelIfValid(const Level &level);
+
+    QString levelFolderPath(const QString &folderName) const;
+    void addFallbackLevel();
+};
+
+#endif // LEVELMANAGER_H
+
