@@ -14,8 +14,10 @@ public:
     int targetReverseCount;
 
     // 阶段 20：固定候选编辑点
-    // QPoint(x, y)：x 是列 col，y 是行 row
     QVector<QPoint> editablePoints;
+
+    // 阶段 22：区分内置关卡和自定义关卡
+    bool isCustomLevel;
 
     Level();
 
@@ -27,7 +29,12 @@ public:
           const QStringList &levelMapData,
           int targetCount,
           const QVector<QPoint> &levelEditablePoints);
+
+    Level(const QString &levelName,
+          const QStringList &levelMapData,
+          int targetCount,
+          const QVector<QPoint> &levelEditablePoints,
+          bool customLevel);
 };
 
 #endif // LEVEL_H
-

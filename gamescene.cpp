@@ -398,7 +398,11 @@ void GameScene::updateStatusText()
     if (levelManager.isValidLevelIndex(currentLevelIndex)) {
         Level currentLevel = levelManager.levelAt(currentLevelIndex);
         levelName = currentLevel.name;
+        if (currentLevel.isCustomLevel) {
+            levelName = "[自定义] " + levelName;
+        }
         targetCount = currentLevel.targetReverseCount;
+
     }
 
     QString levelText = QString("关卡：%1/%2  %3")
@@ -445,7 +449,6 @@ void GameScene::updateStatusText()
         fullStateText
         );
 }
-
 
 
 QString GameScene::gravityDirectionToString() const

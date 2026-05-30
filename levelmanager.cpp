@@ -61,6 +61,31 @@ Level LevelManager::levelAt(int index) const
 
     return levels[index];
 }
+bool LevelManager::isCustomLevelIndex(int index) const
+{
+    if (!isValidLevelIndex(index)) {
+        return false;
+    }
+
+    return levels[index].isCustomLevel;
+}
+
+QString LevelManager::levelSelectTextAt(int index) const
+{
+    if (!isValidLevelIndex(index)) {
+        return QString("未知关卡");
+    }
+
+    const Level &level = levels[index];
+
+    if (level.isCustomLevel) {
+        return QString("[自定义] %1").arg(level.name);
+    }
+
+    return QString("第 %1 关：%2")
+        .arg(index + 1)
+        .arg(level.name);
+}
 
 
 void LevelManager::addLevelIfValid(const Level &level)
@@ -270,6 +295,23 @@ QString LevelManager::levelFolderPath(const QString &folderName) const
 
     return appDir.filePath(folderName);
 }
+bool LevelManager::isFileInFolder(const QString &filePath, const QString &folderPath) const
+{
+    QString absoluteFilePath = QDir::fromNativeSeparators(
+        QDir::cleanPath(QFileInfo(filePath).absoluteFilePath())
+        );
+
+    QString absoluteFolderPath = QDir::fromNativeSeparators(
+        QDir::cleanPath(QDir(folderPath).absolutePath())
+        );
+
+    if (absoluteFilePath == absoluteFolderPath) {
+        return true;
+    }
+
+    return absoluteFilePath.startsWith(absoluteFolderPath + "/");
+}
+
 QString LevelManager::customLevelFolderPath() const
 {
     return levelFolderPath("custom_levels");
@@ -314,10 +356,6 @@ bool LevelManager::loadLevelFromFile(const QString &filePath)
     }
 
     levels.append(level);
-
-    qDebug() << "External level loaded:" << level.name << "from" << filePath
-             << "editable points:" << level.editablePoints.size();
-
     return true;
 }
 bool LevelManager::validateLevelForSave(const Level &level,
@@ -465,11 +503,14 @@ bool LevelManager::readLevelFromFile(const QString &filePath,
         }
     }
 
+    bool customLevel = isFileInFolder(filePath, customLevelFolderPath());
+
     Level loadedLevel(
         name,
         mapData,
         targetReverseCount,
-        editablePoints
+        editablePoints,
+        customLevel
         );
 
     if (!validateLevel(loadedLevel, errorMessage)) {

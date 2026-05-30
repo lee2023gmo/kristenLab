@@ -34,6 +34,8 @@ public:
 
     QString customLevelFolderPath() const;
 
+    bool isCustomLevelIndex(int index) const;
+    QString levelSelectTextAt(int index) const;
 private:
     QVector<Level> levels;
 
@@ -42,6 +44,8 @@ private:
 
     QString levelFolderPath(const QString &folderName) const;
     void addFallbackLevel();
+
+    bool isFileInFolder(const QString &filePath, const QString &folderPath) const;
 };
 
 #endif // LEVELMANAGER_H

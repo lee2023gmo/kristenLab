@@ -1,6 +1,7 @@
 #include "mainwindow.h"
 #include "./ui_mainwindow.h"
 #include "gamescene.h"
+#include "levelmanager.h"
 
 #include <QDebug>
 #include <QDialog>
@@ -13,6 +14,7 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <QScrollArea>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -413,73 +415,130 @@ void MainWindow::setupGameWindow(int startLevelNumber)
 
 void MainWindow::showLevelSelectDialog()
 {
-    if (gameScene == nullptr) {
-        gameScene = new GameScene(this);
-    }
+    // 阶段 22：
+    // 每次打开关卡选择时，都重新扫描 levels 和 custom_levels。
+    // 这样新增 / 删除自定义地图后，界面会自动更新。
+    LevelManager previewManager;
+    previewManager.loadDefaultLevels();
 
     QDialog dialog(this);
     dialog.setWindowTitle("关卡选择");
-    dialog.resize(360, 420);
+    dialog.resize(460, 560);
 
     QVBoxLayout *layout = new QVBoxLayout(&dialog);
     layout->setContentsMargins(20, 20, 20, 20);
-    layout->setSpacing(10);
+    layout->setSpacing(12);
 
     QLabel *titleLabel = new QLabel("请选择关卡", &dialog);
     titleLabel->setAlignment(Qt::AlignCenter);
     titleLabel->setStyleSheet(
-        "font-size: 20px;"
+        "font-size: 22px;"
         "font-weight: bold;"
-        "color: white;"
+        "color: #80f7ff;"
+        );
+
+    QLabel *hintLabel = new QLabel(
+        "关卡列表会根据 levels 和 custom_levels 文件夹自动生成",
+        &dialog
+        );
+    hintLabel->setAlignment(Qt::AlignCenter);
+    hintLabel->setWordWrap(true);
+    hintLabel->setStyleSheet(
+        "font-size: 12px;"
+        "color: #cbd5e1;"
         );
 
     layout->addWidget(titleLabel);
+    layout->addWidget(hintLabel);
 
-    int totalCount = gameScene->totalLevelCount();
+    QScrollArea *scrollArea = new QScrollArea(&dialog);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+
+    QWidget *scrollWidget = new QWidget(scrollArea);
+    scrollWidget->setObjectName("levelScrollWidget");
+
+    QVBoxLayout *levelLayout = new QVBoxLayout(scrollWidget);
+    levelLayout->setContentsMargins(4, 4, 4, 4);
+    levelLayout->setSpacing(8);
+
+    auto addSectionTitle = [&](const QString &text) {
+        QLabel *sectionLabel = new QLabel(text, scrollWidget);
+        sectionLabel->setObjectName("sectionLabel");
+        sectionLabel->setMinimumHeight(28);
+        sectionLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+
+        levelLayout->addWidget(sectionLabel);
+    };
+
+    int totalCount = previewManager.levelCount();
 
     if (totalCount <= 0) {
-        QLabel *emptyLabel = new QLabel("没有可用关卡，请检查 levels 和 custom_levels 文件夹。", &dialog);
+        QLabel *emptyLabel = new QLabel(
+            "没有可用关卡。\n请检查 levels 和 custom_levels 文件夹。",
+            scrollWidget
+            );
         emptyLabel->setWordWrap(true);
         emptyLabel->setAlignment(Qt::AlignCenter);
-        layout->addWidget(emptyLabel);
+
+        levelLayout->addWidget(emptyLabel);
     } else {
-        for (int i = 1; i <= totalCount; ++i) {
-            QString levelName = gameScene->levelNameByNumber(i);
+        bool builtInTitleAdded = false;
+        bool customTitleAdded = false;
 
-            QPushButton *levelButton = new QPushButton(
-                QString("第 %1 关：%2").arg(i).arg(levelName),
-                &dialog
-                );
+        for (int index = 0; index < totalCount; ++index) {
+            Level level = previewManager.levelAt(index);
 
-            levelButton->setMinimumHeight(40);
+            if (level.isCustomLevel) {
+                if (!customTitleAdded) {
+                    addSectionTitle("自定义关卡");
+                    customTitleAdded = true;
+                }
+            } else {
+                if (!builtInTitleAdded) {
+                    addSectionTitle("内置关卡");
+                    builtInTitleAdded = true;
+                }
+            }
+
+            QString buttonText = previewManager.levelSelectTextAt(index);
+
+            QPushButton *levelButton = new QPushButton(buttonText, scrollWidget);
+            levelButton->setMinimumHeight(42);
             levelButton->setFocusPolicy(Qt::NoFocus);
+            levelButton->setProperty("customLevel", level.isCustomLevel);
 
-            connect(levelButton, &QPushButton::clicked, this, [this, i, &dialog]() {
+            int levelNumber = index + 1;
+
+            connect(levelButton, &QPushButton::clicked, this, [this, levelNumber, &dialog]() {
                 dialog.accept();
 
-                setupGameWindow();
-
-                if (gameScene != nullptr) {
-                    gameScene->loadLevelByNumber(i);
-                    gameScene->setFocus();
-                }
+                setupGameWindow(levelNumber);
 
                 if (gameView != nullptr) {
                     gameView->setFocus();
                 }
+
+                if (gameScene != nullptr) {
+                    gameScene->setFocus();
+                }
             });
 
-
-            layout->addWidget(levelButton);
+            levelLayout->addWidget(levelButton);
         }
     }
 
+    levelLayout->addStretch();
+
+    scrollArea->setWidget(scrollWidget);
+    layout->addWidget(scrollArea, 1);
+
     QPushButton *closeButton = new QPushButton("关闭", &dialog);
-    closeButton->setMinimumHeight(36);
+    closeButton->setMinimumHeight(38);
+    closeButton->setFocusPolicy(Qt::NoFocus);
 
     connect(closeButton, &QPushButton::clicked, &dialog, &QDialog::reject);
 
-    layout->addStretch();
     layout->addWidget(closeButton);
 
     dialog.setStyleSheet(
@@ -488,18 +547,41 @@ void MainWindow::showLevelSelectDialog()
         "color: white;"
         "font-family: Microsoft YaHei;"
         "}"
+        "QScrollArea {"
+        "background: transparent;"
+        "border: none;"
+        "}"
+        "QWidget#levelScrollWidget {"
+        "background: transparent;"
+        "}"
+        "QLabel {"
+        "color: white;"
+        "}"
+        "QLabel#sectionLabel {"
+        "font-size: 15px;"
+        "font-weight: bold;"
+        "color: #f1fa8c;"
+        "margin-top: 8px;"
+        "}"
         "QPushButton {"
         "background-color: #2d3348;"
         "color: white;"
         "border: 1px solid #4a5568;"
-        "border-radius: 6px;"
+        "border-radius: 8px;"
         "padding: 8px;"
         "font-size: 14px;"
+        "text-align: left;"
         "}"
         "QPushButton:hover {"
         "background-color: #3a86ff;"
         "}"
-        "QLabel {"
+        "QPushButton[customLevel=\"true\"] {"
+        "background-color: #264653;"
+        "border: 1px solid #2a9d8f;"
+        "color: #e0fffa;"
+        "}"
+        "QPushButton[customLevel=\"true\"]:hover {"
+        "background-color: #2a9d8f;"
         "color: white;"
         "}"
         );

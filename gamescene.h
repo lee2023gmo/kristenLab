@@ -162,10 +162,8 @@ private:
     void setTileAtGridPos(const QPoint &gridPos, QChar tile);
 
     void redrawEditedMap();
-    // 阶段 20：固定候选点编辑模式
     QVector<QPoint> candidateEditPoints;
     QSet<QString> candidateEditPointKeys;
-    // 阶段 20：候选点编辑模式
     void rebuildCandidateEditPointKeys();
     QVector<QPoint> fallbackCandidateEditPoints(int maxCount) const;
     bool isCandidateEditPoint(const QPoint &gridPos) const;
