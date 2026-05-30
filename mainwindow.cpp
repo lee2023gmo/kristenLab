@@ -394,13 +394,20 @@ void MainWindow::setupGameWindow(int startLevelNumber)
         gameView->setFocus();
         gameScene->setFocus();
     });
-    connect(saveButton, &QPushButton::clicked, this, [this, refocusGame]() {
+    connect(saveButton, &QPushButton::clicked, this, [this]() {
         if (gameScene != nullptr) {
             gameScene->saveCurrentEditedLevel();
         }
 
-        refocusGame();
+        if (gameView != nullptr) {
+            gameView->setFocus();
+        }
+
+        if (gameScene != nullptr) {
+            gameScene->setFocus();
+        }
     });
+
 
 }
 
