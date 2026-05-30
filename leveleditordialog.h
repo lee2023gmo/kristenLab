@@ -6,8 +6,11 @@
 #include <QString>
 #include <QStringList>
 
+class QPoint;
+
 class QComboBox;
 class QLabel;
+class QPlainTextEdit;
 class QLineEdit;
 class QPushButton;
 class QSpinBox;
@@ -20,6 +23,12 @@ class LevelEditorDialog : public QDialog
 public:
     explicit LevelEditorDialog(QWidget *parent = nullptr);
 
+signals:
+    void requestOpenLevelSelect();
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
     QLineEdit *nameEdit;
     QSpinBox *widthSpinBox;
@@ -28,13 +37,20 @@ private:
 
     QComboBox *tileComboBox;
     QComboBox *saveFolderComboBox;
+    QLabel *currentToolPreviewLabel;
     QChar currentTile;
+
+    bool isPainting;
+    bool isErasing;
 
     QLabel *mapPlaceholderLabel;
     QTableWidget *mapTable;
+    QPlainTextEdit *mapPreviewEdit;
 
     QPushButton *generateButton;
     QPushButton *borderButton;
+    QPushButton *clearButton;
+    QPushButton *importButton;
     QPushButton *validateButton;
     QPushButton *saveButton;
     QPushButton *closeButton;
@@ -59,9 +75,14 @@ private:
 
     // 阶段 26：设计师模式地图校验
     QStringList buildMapDataFromTable() const;
+    bool validateMapData(const QStringList &mapData, QString *errorMessage) const;
     bool validateCurrentMap(QString *errorMessage) const;
     void validateMapByButton();
     void addBorderWalls();
+    void clearMapToEmpty();
+    void updateCurrentToolPreview();
+    void updateMapPreview();
+    void paintCellAtViewportPosition(const QPoint &position, QChar tile);
 
     // 阶段 27：保存为 JSON 文件
     QString projectRootPath() const;
@@ -69,6 +90,15 @@ private:
     QString selectedFolderName() const;
     QString safeFileName(const QString &name) const;
     void saveCurrentLevel();
+
+    // 阶段 28：导入已有 JSON 继续编辑
+    void importLevelFromJson();
+    bool loadLevelJsonFile(const QString &filePath,
+                           QString *name,
+                           int *targetReverseCount,
+                           QStringList *mapData,
+                           QString *errorMessage) const;
+    void loadMapDataToTable(const QStringList &mapData);
 
     void showStageTip(const QString &actionName);
 };

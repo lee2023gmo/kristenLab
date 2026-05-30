@@ -8,7 +8,9 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QEvent>
 #include <QFile>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QFrame>
@@ -17,11 +19,15 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonParseError>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QPlainTextEdit>
+#include <QMouseEvent>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QSignalBlocker>
 #include <QSpinBox>
 #include <QTableWidget>
 #include <QTableWidgetItem>
@@ -35,17 +41,69 @@ LevelEditorDialog::LevelEditorDialog(QWidget *parent)
     , targetReverseSpinBox(nullptr)
     , tileComboBox(nullptr)
     , saveFolderComboBox(nullptr)
+    , currentToolPreviewLabel(nullptr)
     , currentTile(TileDefs::Empty)
+    , isPainting(false)
+    , isErasing(false)
     , mapPlaceholderLabel(nullptr)
     , mapTable(nullptr)
+    , mapPreviewEdit(nullptr)
     , generateButton(nullptr)
     , borderButton(nullptr)
+    , clearButton(nullptr)
+    , importButton(nullptr)
     , validateButton(nullptr)
     , saveButton(nullptr)
     , closeButton(nullptr)
 {
     setupUi();
     setupConnections();
+}
+
+bool LevelEditorDialog::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == mapTable->viewport()) {
+        if (event->type() == QEvent::MouseButtonPress) {
+            QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
+
+            if (mouseEvent->button() == Qt::LeftButton) {
+                isPainting = true;
+                isErasing = false;
+                paintCellAtViewportPosition(mouseEvent->pos(), currentTile);
+                return true;
+            }
+
+            if (mouseEvent->button() == Qt::RightButton) {
+                isPainting = false;
+                isErasing = true;
+                paintCellAtViewportPosition(mouseEvent->pos(), TileDefs::Empty);
+                return true;
+            }
+        }
+        else if (event->type() == QEvent::MouseMove) {
+            QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
+
+            if (isPainting) {
+                paintCellAtViewportPosition(mouseEvent->pos(), currentTile);
+                return true;
+            }
+
+            if (isErasing) {
+                paintCellAtViewportPosition(mouseEvent->pos(), TileDefs::Empty);
+                return true;
+            }
+        }
+        else if (event->type() == QEvent::MouseButtonRelease) {
+            isPainting = false;
+            isErasing = false;
+        }
+        else if (event->type() == QEvent::Leave) {
+            isPainting = false;
+            isErasing = false;
+        }
+    }
+
+    return QDialog::eventFilter(watched, event);
 }
 
 void LevelEditorDialog::setupUi()
@@ -66,7 +124,7 @@ void LevelEditorDialog::setupUi()
         );
 
     QLabel *hintLabel = new QLabel(
-        "阶段 27：地图校验通过后，可以保存为 JSON 文件，并被关卡选择界面自动读取。",
+        "阶段 29：加入工具高亮、拖动连续绘制、右键擦除、清空地图和地图字符串预览。",
         this
         );
     hintLabel->setAlignment(Qt::AlignCenter);
@@ -122,11 +180,16 @@ void LevelEditorDialog::setupUi()
     saveFolderComboBox->addItem("内置关卡文件夹 levels", "levels");
     saveFolderComboBox->setCurrentIndex(0);
 
+    currentToolPreviewLabel = new QLabel(infoFrame);
+    currentToolPreviewLabel->setAlignment(Qt::AlignCenter);
+    currentToolPreviewLabel->setMinimumHeight(32);
+
     formLayout->addRow("关卡名：", nameEdit);
     formLayout->addRow("地图宽度：", widthSpinBox);
     formLayout->addRow("地图高度：", heightSpinBox);
     formLayout->addRow("目标反转次数：", targetReverseSpinBox);
     formLayout->addRow("当前绘制元素：", tileComboBox);
+    formLayout->addRow("工具预览：", currentToolPreviewLabel);
     formLayout->addRow("保存位置：", saveFolderComboBox);
 
     mainLayout->addWidget(infoFrame);
@@ -142,7 +205,7 @@ void LevelEditorDialog::setupUi()
     mapPlaceholderLabel = new QLabel(
         "地图编辑区域\n\n"
         "请输入宽度和高度，然后点击“生成地图”。\n"
-        "生成后，选择上方元素，左键点击格子绘制，双击左键擦除为空地。",
+        "可以点击“生成地图”新建，也可以点击“导入 JSON”打开已有关卡。\n左键拖动连续绘制，右键拖动擦除为空地，底部会实时显示地图字符串。",
         mapFrame
         );
     mapPlaceholderLabel->setAlignment(Qt::AlignCenter);
@@ -166,9 +229,17 @@ void LevelEditorDialog::setupUi()
     mapTable->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
     mapTable->horizontalHeader()->setDefaultSectionSize(42);
     mapTable->verticalHeader()->setDefaultSectionSize(42);
+    mapTable->viewport()->installEventFilter(this);
+
+    mapPreviewEdit = new QPlainTextEdit(mapFrame);
+    mapPreviewEdit->setReadOnly(true);
+    mapPreviewEdit->setMaximumHeight(90);
+    mapPreviewEdit->setPlaceholderText("地图字符串预览会显示在这里。");
+    mapPreviewEdit->setVisible(false);
 
     mapLayout->addWidget(mapPlaceholderLabel);
     mapLayout->addWidget(mapTable, 1);
+    mapLayout->addWidget(mapPreviewEdit);
 
     mainLayout->addWidget(mapFrame, 1);
 
@@ -181,18 +252,24 @@ void LevelEditorDialog::setupUi()
 
     generateButton = new QPushButton("生成地图", buttonFrame);
     borderButton = new QPushButton("自动加边框墙", buttonFrame);
+    clearButton = new QPushButton("清空为空地", buttonFrame);
+    importButton = new QPushButton("导入 JSON", buttonFrame);
     validateButton = new QPushButton("校验地图", buttonFrame);
     saveButton = new QPushButton("保存关卡", buttonFrame);
     closeButton = new QPushButton("关闭", buttonFrame);
 
     generateButton->setMinimumHeight(36);
     borderButton->setMinimumHeight(36);
+    clearButton->setMinimumHeight(36);
+    importButton->setMinimumHeight(36);
     validateButton->setMinimumHeight(36);
     saveButton->setMinimumHeight(36);
     closeButton->setMinimumHeight(36);
 
     buttonLayout->addWidget(generateButton);
     buttonLayout->addWidget(borderButton);
+    buttonLayout->addWidget(clearButton);
+    buttonLayout->addWidget(importButton);
     buttonLayout->addWidget(validateButton);
     buttonLayout->addWidget(saveButton);
     buttonLayout->addStretch();
@@ -250,6 +327,14 @@ void LevelEditorDialog::setupUi()
         "QTableWidget::item {"
         "padding: 2px;"
         "}"
+        "QPlainTextEdit {"
+        "background-color: #10131f;"
+        "color: #cbd5e1;"
+        "border: 1px solid #4a5568;"
+        "border-radius: 6px;"
+        "font-family: Consolas;"
+        "font-size: 12px;"
+        "}"
         );
 }
 
@@ -261,12 +346,15 @@ void LevelEditorDialog::setupConnections()
     connect(borderButton, &QPushButton::clicked,
             this, &LevelEditorDialog::addBorderWalls);
 
+    connect(clearButton, &QPushButton::clicked,
+            this, &LevelEditorDialog::clearMapToEmpty);
+
+    connect(importButton, &QPushButton::clicked,
+            this, &LevelEditorDialog::importLevelFromJson);
+
     connect(tileComboBox, &QComboBox::currentIndexChanged, this, [this]() {
         currentTile = currentTileFromCombo();
-    });
-
-    connect(mapTable, &QTableWidget::cellClicked, this, [this](int row, int col) {
-        setCellTile(row, col, currentTile);
+        updateCurrentToolPreview();
     });
 
     connect(mapTable, &QTableWidget::cellDoubleClicked, this, [this](int row, int col) {
@@ -280,6 +368,8 @@ void LevelEditorDialog::setupConnections()
             this, &LevelEditorDialog::saveCurrentLevel);
 
     connect(closeButton, &QPushButton::clicked, this, &LevelEditorDialog::reject);
+
+    updateCurrentToolPreview();
 }
 
 void LevelEditorDialog::generateMapTable()
@@ -308,6 +398,8 @@ void LevelEditorDialog::generateMapTable()
 
     mapPlaceholderLabel->setVisible(false);
     mapTable->setVisible(true);
+    mapPreviewEdit->setVisible(true);
+    mapPreviewEdit->setVisible(true);
 
     for (int col = 0; col < columnCount; ++col) {
         mapTable->setColumnWidth(col, 42);
@@ -318,6 +410,7 @@ void LevelEditorDialog::generateMapTable()
     }
 
     mapTable->setCurrentCell(0, 0);
+    updateMapPreview();
 }
 
 void LevelEditorDialog::setCellTile(int row, int col, QChar tile)
@@ -356,6 +449,7 @@ void LevelEditorDialog::setCellTile(int row, int col, QChar tile)
     item->setToolTip(tileToolTip(tile));
 
     updateCellStyle(row, col);
+    updateMapPreview();
 }
 
 QChar LevelEditorDialog::cellTile(int row, int col) const
@@ -560,13 +654,12 @@ QStringList LevelEditorDialog::buildMapDataFromTable() const
     return mapData;
 }
 
-bool LevelEditorDialog::validateCurrentMap(QString *errorMessage) const
-{
-    QStringList mapData = buildMapDataFromTable();
 
+bool LevelEditorDialog::validateMapData(const QStringList &mapData, QString *errorMessage) const
+{
     if (mapData.isEmpty()) {
         if (errorMessage != nullptr) {
-            *errorMessage = "请先点击“生成地图”，再进行校验。";
+            *errorMessage = "地图不能为空。";
         }
         return false;
     }
@@ -576,6 +669,20 @@ bool LevelEditorDialog::validateCurrentMap(QString *errorMessage) const
     if (expectedColumnCount == 0) {
         if (errorMessage != nullptr) {
             *errorMessage = "地图第一行不能为空。";
+        }
+        return false;
+    }
+
+    if (expectedColumnCount < 5 || expectedColumnCount > 30) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QString("地图宽度必须在 5 到 30 之间，当前是 %1。").arg(expectedColumnCount);
+        }
+        return false;
+    }
+
+    if (mapData.size() < 5 || mapData.size() > 20) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QString("地图高度必须在 5 到 20 之间，当前是 %1。").arg(mapData.size());
         }
         return false;
     }
@@ -643,6 +750,20 @@ bool LevelEditorDialog::validateCurrentMap(QString *errorMessage) const
     return true;
 }
 
+bool LevelEditorDialog::validateCurrentMap(QString *errorMessage) const
+{
+    QStringList mapData = buildMapDataFromTable();
+
+    if (mapData.isEmpty()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "请先点击“生成地图”或“导入 JSON”，再进行校验。";
+        }
+        return false;
+    }
+
+    return validateMapData(mapData, errorMessage);
+}
+
 void LevelEditorDialog::validateMapByButton()
 {
     QString errorMessage;
@@ -673,7 +794,7 @@ void LevelEditorDialog::addBorderWalls()
         QMessageBox::warning(
             this,
             "无法添加边框墙",
-            "请先点击“生成地图”，再添加边框墙。"
+            "请先点击“生成地图”或“导入 JSON”，再添加边框墙。"
             );
         return;
     }
@@ -700,11 +821,93 @@ void LevelEditorDialog::addBorderWalls()
         setCellTile(row, columnCount - 1, TileDefs::Wall);
     }
 
+    updateMapPreview();
+
     QMessageBox::information(
         this,
         "边框墙已添加",
         "已将第一行、最后一行、第一列、最后一列全部设置为墙体 1。"
         );
+}
+
+void LevelEditorDialog::clearMapToEmpty()
+{
+    if (mapTable == nullptr || !mapTable->isVisible()) {
+        QMessageBox::warning(
+            this,
+            "无法清空地图",
+            "请先点击“生成地图”或“导入 JSON”，再清空地图。"
+            );
+        return;
+    }
+
+    QMessageBox::StandardButton result = QMessageBox::question(
+        this,
+        "确认清空地图",
+        "确定要把当前地图全部变成空地 0 吗？",
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No
+        );
+
+    if (result != QMessageBox::Yes) {
+        return;
+    }
+
+    for (int row = 0; row < mapTable->rowCount(); ++row) {
+        for (int col = 0; col < mapTable->columnCount(); ++col) {
+            setCellTile(row, col, TileDefs::Empty);
+        }
+    }
+
+    updateMapPreview();
+}
+
+void LevelEditorDialog::updateCurrentToolPreview()
+{
+    if (currentToolPreviewLabel == nullptr) {
+        return;
+    }
+
+    QChar tile = currentTile;
+    QString text = QString("当前工具：%1").arg(tileToolTip(tile));
+
+    currentToolPreviewLabel->setText(text);
+    currentToolPreviewLabel->setStyleSheet(
+        QString("background-color: %1; color: %2; border: 2px solid #80f7ff; border-radius: 8px; font-weight: bold; padding: 6px;")
+            .arg(tileBackgroundColor(tile).name())
+            .arg(tileTextColor(tile).name())
+        );
+}
+
+void LevelEditorDialog::updateMapPreview()
+{
+    if (mapPreviewEdit == nullptr) {
+        return;
+    }
+
+    QStringList mapData = buildMapDataFromTable();
+
+    if (mapData.isEmpty()) {
+        mapPreviewEdit->clear();
+        return;
+    }
+
+    mapPreviewEdit->setPlainText(mapData.join("\n"));
+}
+
+void LevelEditorDialog::paintCellAtViewportPosition(const QPoint &position, QChar tile)
+{
+    if (mapTable == nullptr || !mapTable->isVisible()) {
+        return;
+    }
+
+    QModelIndex index = mapTable->indexAt(position);
+
+    if (!index.isValid()) {
+        return;
+    }
+
+    setCellTile(index.row(), index.column(), tile);
 }
 
 QString LevelEditorDialog::selectedFolderName() const
@@ -840,13 +1043,214 @@ void LevelEditorDialog::saveCurrentLevel()
 
     QString folderName = selectedFolderName();
 
-    QMessageBox::information(
+    QMessageBox::StandardButton result = QMessageBox::question(
         this,
         "保存成功",
-        QString("保存成功！\n\n文件已保存到项目根目录下的 %1 文件夹。\n\n完整路径：\n%2\n\n请回到关卡选择界面查看新关卡。")
+        QString("保存成功！\n\n文件已保存到项目根目录下的 %1 文件夹。\n\n完整路径：\n%2\n\n是否立即回到关卡选择界面查看新关卡？")
             .arg(folderName)
+            .arg(filePath),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::Yes
+        );
+
+    if (result == QMessageBox::Yes) {
+        emit requestOpenLevelSelect();
+    }
+}
+
+
+void LevelEditorDialog::importLevelFromJson()
+{
+    QString filePath = QFileDialog::getOpenFileName(
+        this,
+        "导入关卡 JSON",
+        projectRootPath(),
+        "JSON 文件 (*.json);;所有文件 (*.*)"
+        );
+
+    if (filePath.isEmpty()) {
+        return;
+    }
+
+    QString name;
+    int targetReverseCount = 0;
+    QStringList mapData;
+    QString errorMessage;
+
+    if (!loadLevelJsonFile(filePath, &name, &targetReverseCount, &mapData, &errorMessage)) {
+        QMessageBox::warning(
+            this,
+            "导入失败",
+            QString("无法导入该 JSON 文件。\n\n文件：\n%1\n\n错误原因：\n%2")
+                .arg(filePath)
+                .arg(errorMessage)
+            );
+        return;
+    }
+
+    nameEdit->setText(name);
+    targetReverseSpinBox->setValue(targetReverseCount);
+    loadMapDataToTable(mapData);
+
+    // 导入后默认另存到 custom_levels，避免误覆盖内置关卡。
+    saveFolderComboBox->setCurrentIndex(0);
+
+    QMessageBox::information(
+        this,
+        "导入成功",
+        QString("已成功导入关卡：%1\n\n来源文件：\n%2\n\n你可以继续编辑，修改后建议保存到 custom_levels。")
+            .arg(name)
             .arg(filePath)
         );
+}
+
+bool LevelEditorDialog::loadLevelJsonFile(const QString &filePath,
+                                          QString *name,
+                                          int *targetReverseCount,
+                                          QStringList *mapData,
+                                          QString *errorMessage) const
+{
+    QFile file(filePath);
+
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "无法打开文件。";
+        }
+        return false;
+    }
+
+    QByteArray jsonData = file.readAll();
+    file.close();
+
+    QJsonParseError parseError;
+    QJsonDocument document = QJsonDocument::fromJson(jsonData, &parseError);
+
+    if (parseError.error != QJsonParseError::NoError) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "JSON 解析失败：" + parseError.errorString();
+        }
+        return false;
+    }
+
+    if (!document.isObject()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "JSON 根节点必须是对象。";
+        }
+        return false;
+    }
+
+    QJsonObject object = document.object();
+
+    QString loadedName = object.value("name").toString();
+
+    if (loadedName.isEmpty()) {
+        loadedName = QFileInfo(filePath).baseName();
+    }
+
+    int loadedTargetReverseCount = object.value("targetReverseCount").toInt(0);
+
+    QJsonValue mapValue = object.value("map");
+
+    if (!mapValue.isArray()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "JSON 缺少 map 数组。";
+        }
+        return false;
+    }
+
+    QJsonArray mapArray = mapValue.toArray();
+
+    if (mapArray.isEmpty()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "map 数组不能为空。";
+        }
+        return false;
+    }
+
+    QStringList loadedMapData;
+
+    for (int i = 0; i < mapArray.size(); ++i) {
+        QJsonValue rowValue = mapArray.at(i);
+
+        if (!rowValue.isString()) {
+            if (errorMessage != nullptr) {
+                *errorMessage = QString("map 第 %1 行不是字符串。").arg(i + 1);
+            }
+            return false;
+        }
+
+        loadedMapData.append(rowValue.toString());
+    }
+
+    QString validateError;
+
+    if (!validateMapData(loadedMapData, &validateError)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "地图数据不合法：" + validateError;
+        }
+        return false;
+    }
+
+    if (name != nullptr) {
+        *name = loadedName;
+    }
+
+    if (targetReverseCount != nullptr) {
+        *targetReverseCount = loadedTargetReverseCount;
+    }
+
+    if (mapData != nullptr) {
+        *mapData = loadedMapData;
+    }
+
+    return true;
+}
+
+void LevelEditorDialog::loadMapDataToTable(const QStringList &mapData)
+{
+    if (mapData.isEmpty()) {
+        return;
+    }
+
+    const int rowCount = mapData.size();
+    const int columnCount = mapData[0].size();
+
+    widthSpinBox->setValue(columnCount);
+    heightSpinBox->setValue(rowCount);
+
+    mapTable->clear();
+    mapTable->setRowCount(rowCount);
+    mapTable->setColumnCount(columnCount);
+
+    for (int row = 0; row < rowCount; ++row) {
+        mapTable->setRowHeight(row, 42);
+
+        for (int col = 0; col < columnCount; ++col) {
+            mapTable->setColumnWidth(col, 42);
+
+            QTableWidgetItem *item = new QTableWidgetItem();
+            item->setTextAlignment(Qt::AlignCenter);
+            item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+
+            mapTable->setItem(row, col, item);
+            setCellTile(row, col, mapData[row][col]);
+        }
+    }
+
+    mapPlaceholderLabel->setVisible(false);
+    mapTable->setVisible(true);
+    mapPreviewEdit->setVisible(true);
+
+    for (int col = 0; col < columnCount; ++col) {
+        mapTable->setColumnWidth(col, 42);
+    }
+
+    for (int row = 0; row < rowCount; ++row) {
+        mapTable->setRowHeight(row, 42);
+    }
+
+    mapTable->setCurrentCell(0, 0);
+    updateMapPreview();
 }
 
 void LevelEditorDialog::showStageTip(const QString &actionName)
@@ -882,5 +1286,5 @@ void LevelEditorDialog::showStageTip(const QString &actionName)
                           .arg(tileToolTip(currentTile))
                           .arg(actionName);
 
-    QMessageBox::information(this, "阶段 27 提示", message);
+    QMessageBox::information(this, "阶段 29 提示", message);
 }
