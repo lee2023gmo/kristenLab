@@ -40,6 +40,8 @@
 #include <QTableWidgetItem>
 #include <QVBoxLayout>
 
+const QChar LevelEditorDialog::EditablePointTool = QChar('@');
+
 LevelEditorDialog::LevelEditorDialog(QWidget *parent)
     : QDialog(parent)
     , nameEdit(nullptr)
@@ -155,8 +157,14 @@ bool LevelEditorDialog::eventFilter(QObject *watched, QEvent *event)
 void LevelEditorDialog::setupUi()
 {
     setWindowTitle("KristenLab - 关卡设计师");
+    setWindowFlags(windowFlags()
+                   | Qt::WindowSystemMenuHint
+                   | Qt::WindowMinimizeButtonHint
+                   | Qt::WindowMaximizeButtonHint
+                   | Qt::WindowCloseButtonHint);
     resize(1180, 760);
     setMinimumSize(980, 620);
+    setSizeGripEnabled(true);
 
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(18, 18, 18, 18);
@@ -171,7 +179,7 @@ void LevelEditorDialog::setupUi()
         );
 
     QLabel *hintLabel = new QLabel(
-        "左侧设置关卡和工具，右侧编辑地图。左键拖动连续绘制，右键拖动擦除为空地。",
+        "左侧设置关卡和工具，右侧编辑地图。候选点 E 可像普通元素一样绘制；反弹块和传送带已移除。",
         this
         );
     hintLabel->setAlignment(Qt::AlignCenter);
@@ -226,14 +234,15 @@ void LevelEditorDialog::setupUi()
     tileComboBox->addItem("起点 S", QString(TileDefs::Start));
     tileComboBox->addItem("终点 END", QString(TileDefs::End));
     tileComboBox->addItem("死亡区 X", QString(TileDefs::Death));
-    tileComboBox->addItem("弹射块 B", QString(TileDefs::Bounce));
     tileComboBox->addItem("缓冲区 SLOW", QString(TileDefs::Slow));
-    tileComboBox->addItem("传送带 →", QString(TileDefs::Conveyor));
     tileComboBox->addItem("数据碎片 *", QString(TileDefs::Data));
+    tileComboBox->addItem("候选点 E", QString(EditablePointTool));
     tileComboBox->addItem("蹦床 ↗", QString(TileDefs::TrampolineUpRight));
     tileComboBox->addItem("蹦床 ↖", QString(TileDefs::TrampolineUpLeft));
     tileComboBox->addItem("蹦床 ↘", QString(TileDefs::TrampolineDownRight));
     tileComboBox->addItem("蹦床 ↙", QString(TileDefs::TrampolineDownLeft));
+    tileComboBox->addItem("蹦床 →", QString(TileDefs::TrampolineRight));
+    tileComboBox->addItem("蹦床 ←", QString(TileDefs::TrampolineLeft));
     tileComboBox->setCurrentIndex(0);
 
     saveFolderComboBox = new QComboBox(infoFrame);
@@ -293,7 +302,7 @@ void LevelEditorDialog::setupUi()
     zoomOutButton = new QPushButton("缩小地图", buttonFrame);
     zoomInButton = new QPushButton("放大地图", buttonFrame);
     resetZoomButton = new QPushButton("还原缩放", buttonFrame);
-    editablePointModeButton = new QPushButton("候选点模式：关", buttonFrame);
+    editablePointModeButton = new QPushButton("选择候选点工具", buttonFrame);
     clearEditablePointsButton = new QPushButton("清候选点", buttonFrame);
     importButton = new QPushButton("导入 JSON", buttonFrame);
     validateButton = new QPushButton("校验地图", buttonFrame);
@@ -507,7 +516,7 @@ void LevelEditorDialog::setupConnections()
             this, &LevelEditorDialog::resetMapZoom);
 
     connect(editablePointModeButton, &QPushButton::clicked, this, [this]() {
-        setEditablePointMode(!isEditablePointMode);
+        selectEditablePointTool();
     });
 
     connect(clearEditablePointsButton, &QPushButton::clicked,
@@ -518,11 +527,18 @@ void LevelEditorDialog::setupConnections()
 
     connect(tileComboBox, &QComboBox::currentIndexChanged, this, [this]() {
         currentTile = currentTileFromCombo();
+
+        // 现在“候选点”已经作为元素工具存在。
+        // 选择普通元素时自动关闭旧的候选点模式，避免误操作。
+        if (!isEditablePointTool(currentTile) && isEditablePointMode) {
+            setEditablePointMode(false);
+        }
+
         updateCurrentToolPreview();
     });
 
     connect(mapTable, &QTableWidget::cellDoubleClicked, this, [this](int row, int col) {
-        if (isEditablePointMode) {
+        if (isEditablePointMode || isEditablePointTool(currentTile)) {
             removeEditablePoint(row, col);
         } else {
             setCellTile(row, col, TileDefs::Empty);
@@ -757,8 +773,48 @@ QChar LevelEditorDialog::currentTileFromCombo() const
     return data.at(0);
 }
 
+bool LevelEditorDialog::isEditablePointTool(QChar tile) const
+{
+    return tile == EditablePointTool;
+}
+
+int LevelEditorDialog::editablePointToolComboIndex() const
+{
+    if (tileComboBox == nullptr) {
+        return -1;
+    }
+
+    for (int i = 0; i < tileComboBox->count(); ++i) {
+        QString data = tileComboBox->itemData(i).toString();
+
+        if (!data.isEmpty() && data.at(0) == EditablePointTool) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+void LevelEditorDialog::selectEditablePointTool()
+{
+    int index = editablePointToolComboIndex();
+
+    if (index >= 0) {
+        tileComboBox->setCurrentIndex(index);
+    }
+
+    currentTile = EditablePointTool;
+    isEditablePointMode = false;
+    updateCurrentToolPreview();
+    updateEditablePointInfo();
+}
+
 QString LevelEditorDialog::tileDisplayText(QChar tile) const
 {
+    if (isEditablePointTool(tile)) {
+        return "E";
+    }
+
     if (TileDefs::isEmpty(tile)) {
         return "0";
     }
@@ -804,11 +860,19 @@ QString LevelEditorDialog::tileDisplayText(QChar tile) const
 
 QString LevelEditorDialog::tileToolTip(QChar tile) const
 {
+    if (isEditablePointTool(tile)) {
+        return "E：玩家编辑候选点";
+    }
+
     return QString("%1：%2").arg(tile).arg(TileDefs::nameOf(tile));
 }
 
 QColor LevelEditorDialog::tileBackgroundColor(QChar tile) const
 {
+    if (isEditablePointTool(tile)) {
+        return QColor("#6b4f00");
+    }
+
     if (TileDefs::isEmpty(tile)) {
         return QColor("#10131f");
     }
@@ -854,6 +918,10 @@ QColor LevelEditorDialog::tileBackgroundColor(QChar tile) const
 
 QColor LevelEditorDialog::tileTextColor(QChar tile) const
 {
+    if (isEditablePointTool(tile)) {
+        return QColor("#fff7b0");
+    }
+
     if (TileDefs::isEmpty(tile)) {
         return QColor("#94a3b8");
     }
@@ -1125,8 +1193,8 @@ void LevelEditorDialog::updateCurrentToolPreview()
         return;
     }
 
-    if (isEditablePointMode) {
-        currentToolPreviewLabel->setText("当前模式：玩家编辑候选点");
+    if (isEditablePointMode || isEditablePointTool(currentTile)) {
+        currentToolPreviewLabel->setText("当前工具：候选点 E");
         currentToolPreviewLabel->setStyleSheet(
             "background-color: #6b4f00;"
             "color: #fff7b0;"
@@ -1197,22 +1265,6 @@ void LevelEditorDialog::updateMapPreview()
 
 void LevelEditorDialog::adjustEditorSizeToMap()
 {
-    if (mapTable == nullptr || !mapTable->isVisible()) {
-        moveDialogInsideScreen();
-        return;
-    }
-
-    const int tableWidth = mapTable->columnCount() * mapCellSize + 40;
-    const int tableHeight = mapTable->rowCount() * mapCellSize + 40;
-
-    // 不再把 mapTable 的最小尺寸强行设成整张地图大小。
-    // 超出部分使用横向/纵向滚动条浏览。
-    const int viewportMinWidth = qBound(520, tableWidth, 1080);
-    const int viewportMinHeight = qBound(320, tableHeight, 560);
-
-    mapTable->setMinimumWidth(viewportMinWidth);
-    mapTable->setMinimumHeight(viewportMinHeight);
-
     QRect availableGeometry;
 
     if (QScreen *screen = QGuiApplication::screenAt(frameGeometry().center())) {
@@ -1221,15 +1273,34 @@ void LevelEditorDialog::adjustEditorSizeToMap()
         availableGeometry = screen->availableGeometry();
     }
 
+    const int sidePanelWidth = 340;
+    int maxWindowWidth = 1480;
     int maxWindowHeight = 900;
 
     if (availableGeometry.isValid()) {
-        maxWindowHeight = qMax(560, availableGeometry.height() - 60);
+        maxWindowWidth = qMax(980, availableGeometry.width() - 80);
+        maxWindowHeight = qMax(620, availableGeometry.height() - 80);
     }
 
-    const int sidePanelWidth = 340;
-    const int targetWindowWidth = qMin(qMax(width(), sidePanelWidth + viewportMinWidth + 90), 1480);
-    const int targetWindowHeight = qMin(qMin(qMax(height(), viewportMinHeight + 290), 920), maxWindowHeight);
+    if (mapTable == nullptr || !mapTable->isVisible()) {
+        resize(qMin(1180, maxWindowWidth), qMin(760, maxWindowHeight));
+        moveDialogInsideScreen();
+        return;
+    }
+
+    const int tableWidth = mapTable->columnCount() * mapCellSize + 40;
+    const int tableHeight = mapTable->rowCount() * mapCellSize + 40;
+
+    // 右侧地图区域根据地图大小增长，但窗口只增长到屏幕能放下的大小。
+    // 超出部分使用表格自带横向 / 纵向滚动条浏览。
+    const int viewportMinWidth = qBound(520, tableWidth, qMax(520, maxWindowWidth - sidePanelWidth - 110));
+    const int viewportMinHeight = qBound(320, tableHeight, qMax(320, maxWindowHeight - 300));
+
+    mapTable->setMinimumWidth(viewportMinWidth);
+    mapTable->setMinimumHeight(viewportMinHeight);
+
+    const int targetWindowWidth = qBound(980, sidePanelWidth + viewportMinWidth + 90, maxWindowWidth);
+    const int targetWindowHeight = qBound(620, viewportMinHeight + 290, maxWindowHeight);
 
     resize(targetWindowWidth, targetWindowHeight);
     moveDialogInsideScreen();
@@ -1371,7 +1442,9 @@ bool LevelEditorDialog::canBeEditablePoint(int row, int col, QString *errorMessa
         || TileDefs::isStart(tile)
         || TileDefs::isEnd(tile)
         || TileDefs::isDeath(tile)
-        || TileDefs::isData(tile)) {
+        || TileDefs::isData(tile)
+        || TileDefs::isBounce(tile)
+        || TileDefs::isConveyor(tile)) {
         if (errorMessage != nullptr) {
             *errorMessage = QString("候选点不能放在 %1 上。").arg(TileDefs::nameOf(tile));
         }
@@ -1452,13 +1525,23 @@ void LevelEditorDialog::setEditablePointMode(bool enabled)
 
     if (editablePointModeButton != nullptr) {
         editablePointModeButton->setText(
-            isEditablePointMode ? "候选点模式：开" : "候选点模式：关"
+            isEditablePointMode ? "候选点工具：开" : "选择候选点工具"
             );
         editablePointModeButton->setStyleSheet(
             isEditablePointMode
                 ? "background-color: #6b4f00; color: #fff7b0; border: 1px solid #facc15; border-radius: 8px; padding: 8px 10px; font-size: 14px;"
                 : ""
             );
+    }
+
+    if (enabled) {
+        int index = editablePointToolComboIndex();
+
+        if (index >= 0) {
+            tileComboBox->setCurrentIndex(index);
+        }
+
+        currentTile = EditablePointTool;
     }
 
     updateCurrentToolPreview();
@@ -1567,7 +1650,9 @@ bool LevelEditorDialog::validateEditablePoints(const QStringList &mapData,
             || TileDefs::isStart(tile)
             || TileDefs::isEnd(tile)
             || TileDefs::isDeath(tile)
-            || TileDefs::isData(tile)) {
+            || TileDefs::isData(tile)
+            || TileDefs::isBounce(tile)
+            || TileDefs::isConveyor(tile)) {
             if (errorMessage != nullptr) {
                 *errorMessage = QString("玩家编辑候选点不能放在 %1 上：row=%2 col=%3")
                                     .arg(TileDefs::nameOf(tile))
@@ -1617,12 +1702,23 @@ void LevelEditorDialog::paintCellAtViewportPosition(const QPoint &position, QCha
     const int row = index.row();
     const int col = index.column();
 
-    if (isEditablePointMode) {
-        if (isErasing || tile == TileDefs::Empty) {
+    // 候选点现在是一个真正的绘制工具：
+    // 左键 / 拖动：添加候选点
+    // 右键 / 拖动：删除候选点
+    //
+    // 旧版“候选点模式”也保留兼容。
+    if (isEditablePointMode || isEditablePointTool(currentTile) || isEditablePointTool(tile)) {
+        if (isErasing) {
             removeEditablePoint(row, col);
         } else {
             addEditablePoint(row, col);
         }
+
+        return;
+    }
+
+    if (isErasing) {
+        setCellTile(row, col, TileDefs::Empty);
         return;
     }
 
@@ -2083,6 +2179,38 @@ void LevelEditorDialog::stopWindowDrag()
     isDraggingWindow = false;
 }
 
+void LevelEditorDialog::fitDialogToAvailableScreen()
+{
+    QRect availableGeometry;
+
+    if (QScreen *screen = QGuiApplication::screenAt(frameGeometry().center())) {
+        availableGeometry = screen->availableGeometry();
+    } else if (QScreen *screen = QGuiApplication::primaryScreen()) {
+        availableGeometry = screen->availableGeometry();
+    }
+
+    if (!availableGeometry.isValid()) {
+        return;
+    }
+
+    // 注意：这里的“适应窗口”不是铺满整个屏幕。
+    // 只在窗口太大时缩小到屏幕可见范围内，并把它居中。
+    const int maxWidth = qMax(980, availableGeometry.width() - 80);
+    const int maxHeight = qMax(620, availableGeometry.height() - 80);
+
+    int newWidth = qMin(width(), maxWidth);
+    int newHeight = qMin(height(), maxHeight);
+
+    resize(newWidth, newHeight);
+
+    QPoint centeredPosition(
+        availableGeometry.left() + (availableGeometry.width() - width()) / 2,
+        availableGeometry.top() + (availableGeometry.height() - height()) / 2
+        );
+
+    move(centeredPosition);
+}
+
 void LevelEditorDialog::moveDialogInsideScreen()
 {
     QRect availableGeometry;
@@ -2161,6 +2289,7 @@ void LevelEditorDialog::mouseReleaseEvent(QMouseEvent *event)
 void LevelEditorDialog::showEvent(QShowEvent *event)
 {
     QDialog::showEvent(event);
+    fitDialogToAvailableScreen();
     moveDialogInsideScreen();
 }
 

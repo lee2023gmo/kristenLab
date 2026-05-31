@@ -53,10 +53,14 @@ public:
     void enterEditMode();
     void startRunMode();
 
-    void selectBounceBlock();
     void selectSlowBlock();
-    void selectConveyorBlock();
     void selectTrampolineBlock();
+    void selectTrampolineUpRightBlock();
+    void selectTrampolineUpLeftBlock();
+    void selectTrampolineDownRightBlock();
+    void selectTrampolineDownLeftBlock();
+    void selectTrampolineRightBlock();
+    void selectTrampolineLeftBlock();
     void saveCurrentEditedLevel();
 
 signals:
@@ -100,6 +104,7 @@ private:
     bool isPaused;
     bool gameEnded;
     bool wasOnTrampoline;
+    bool isTrampolineLaunchMove;
 
     int elapsedMs;
 

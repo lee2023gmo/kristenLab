@@ -40,10 +40,11 @@ GameScene::GameScene(QObject *parent)
     , isPaused(false)
     , gameEnded(false)
     , wasOnTrampoline(false)
+    , isTrampolineLaunchMove(false)
     , elapsedMs(0)
     , statusText(nullptr)
     , isEditMode(false)
-    , selectedEditTile(TileDefs::Bounce)
+    , selectedEditTile(TileDefs::Slow)
 {
     levelManager.loadDefaultLevels();
     loadLevel(0);
@@ -104,6 +105,7 @@ void GameScene::loadLevel(int levelIndex)
 
     elapsedMs = 0;
     wasOnTrampoline = false;
+    isTrampolineLaunchMove = false;
 
     isPaused = false;
     gameEnded = false;
@@ -397,7 +399,7 @@ void GameScene::updateStatusText()
     QString stateText;
 
     if (isEditMode) {
-        stateText = "候选点编辑：点击切换";
+        stateText = QString("候选点编辑：%1").arg(selectedEditTileName());
     }
     else if (gameEnded) {
         stateText = "已结束";
@@ -518,11 +520,12 @@ void GameScene::moveBallOneStep()
     QPointF newPosition = ball.position;
 
     const bool isDiagonalAirMove = (velocity.x() != 0 && velocity.y() != 0);
+    const bool shouldStopOnWall = isDiagonalAirMove || isTrampolineLaunchMove;
 
     // 先尝试 x 方向移动。
     //
     // 普通沿墙滚动时，如果横向被平台侧边挡住，会尝试脱困。
-    // 但蹦床 45° 斜向弹出的球属于空中斜向运动：
+    // 蹦床弹出的球属于空中弹射运动：
     // 一旦碰到任何墙面，就应该直接停下，不能再沿角落脱困或吸附。
     if (velocity.x() != 0) {
         QPointF tryXPosition(
@@ -533,7 +536,7 @@ void GameScene::moveBallOneStep()
         if (canBallMoveTo(tryXPosition)) {
             newPosition.setX(tryXPosition.x());
         } else {
-            if (isDiagonalAirMove) {
+            if (shouldStopOnWall) {
                 velocity = QPointF(0, 0);
                 ball.setPosition(newPosition);
                 return;
@@ -558,8 +561,6 @@ void GameScene::moveBallOneStep()
     }
 
     // 再尝试 y 方向移动。
-    //
-    // 蹦床 45° 斜向弹出的球如果碰到上方墙/下方墙，也直接停下。
     if (velocity.y() != 0) {
         QPointF tryYPosition(
             newPosition.x(),
@@ -569,7 +570,7 @@ void GameScene::moveBallOneStep()
         if (canBallMoveTo(tryYPosition)) {
             newPosition.setY(tryYPosition.y());
         } else {
-            if (isDiagonalAirMove) {
+            if (shouldStopOnWall) {
                 velocity = QPointF(0, 0);
                 ball.setPosition(newPosition);
                 return;
@@ -732,6 +733,7 @@ void GameScene::setGravityDirection(GravityDirection newDirection)
 
     gravityDirection = nextGravityDirection;
     velocity = nextVelocity;
+    isTrampolineLaunchMove = false;
 
     if (changed) {
         reverseCount++;
@@ -1196,10 +1198,10 @@ void GameScene::applyGravityAfterLeavingWall()
         return;
     }
 
-    // 蹦床 45° 斜向弹出后，速度同时具有 x/y 分量。
-    // 这种属于空中斜向运动，不应该被“离开支撑后恢复竖直坠落”的逻辑改回纯竖直。
+    // 蹦床弹出后属于空中弹射运动。
+    // 包括斜向弹出和水平弹出，都不应该被“离开支撑后恢复竖直坠落”的逻辑覆盖。
     // 空中仍然不能改方向，碰墙仍然会在 moveBallOneStep() 里停下。
-    if (velocity.x() != 0 && velocity.y() != 0) {
+    if (isTrampolineLaunchMove || (velocity.x() != 0 && velocity.y() != 0)) {
         return;
     }
 
@@ -1463,6 +1465,45 @@ void GameScene::applyTrampolineEffect(QChar currentTile)
         return;
     }
 
+    // 蹦床只处理竖直方向进入的球。
+    // 水平滚过蹦床不触发弹跳。
+    if (velocity.y() == 0) {
+        return;
+    }
+
+    const bool isHorizontalTrampoline =
+        TileDefs::isTrampolineRight(currentTile)
+        || TileDefs::isTrampolineLeft(currentTile);
+
+    // 水平向左 / 向右蹦床需要等小球到达蹦床格子的中心后再弹出。
+    //
+    // 之前的问题是：小球刚进入蹦床格子上边缘就立刻水平弹出，
+    // 这时球还贴近格子上沿，很容易撞到旁边墙角而卡住。
+    //
+    // 现在逻辑：
+    // 1. 小球还没走到蹦床中心：继续保持竖直运动，不触发。
+    // 2. 小球到达或越过中心：把球校准到格子中心，再水平弹出。
+    if (isHorizontalTrampoline) {
+        QPoint gridPos = gridPosAtScenePos(ball.position);
+
+        const double centerX = gridPos.x() * TILE_SIZE + TILE_SIZE / 2.0;
+        const double centerY = gridPos.y() * TILE_SIZE + TILE_SIZE / 2.0;
+
+        if (velocity.y() > 0 && ball.position.y() < centerY) {
+            wasOnTrampoline = false;
+            return;
+        }
+
+        if (velocity.y() < 0 && ball.position.y() > centerY) {
+            wasOnTrampoline = false;
+            return;
+        }
+
+        // 到达中心后再弹。
+        // 同时把 x/y 校准到中心，避免因为微小偏移撞到墙角。
+        ball.setPosition(QPointF(centerX, centerY));
+    }
+
     // 同一个蹦床格子只触发一次，避免球还在格子中时每帧重复弹跳。
     if (wasOnTrampoline) {
         return;
@@ -1470,13 +1511,8 @@ void GameScene::applyTrampolineEffect(QChar currentTile)
 
     wasOnTrampoline = true;
 
-    // 蹦床只处理竖直方向进入的球。
-    // 水平滚过蹦床不触发弹跳。
-    if (velocity.y() == 0) {
-        return;
-    }
-
     moveSpeed = BALL_SPEED;
+    isTrampolineLaunchMove = true;
 
     if (TileDefs::isTrampolineUpRight(currentTile)) {
         gravityDirection = GravityDirection::Up;
@@ -1494,12 +1530,21 @@ void GameScene::applyTrampolineEffect(QChar currentTile)
         gravityDirection = GravityDirection::Down;
         velocity = QPointF(-moveSpeed, moveSpeed);
     }
+    else if (TileDefs::isTrampolineRight(currentTile)) {
+        gravityDirection = GravityDirection::Right;
+        velocity = QPointF(moveSpeed, 0);
+    }
+    else if (TileDefs::isTrampolineLeft(currentTile)) {
+        gravityDirection = GravityDirection::Left;
+        velocity = QPointF(-moveSpeed, 0);
+    }
 
-    qDebug() << "Directional trampoline triggered."
+    qDebug() << "Directional trampoline triggered at center when needed."
              << TileDefs::nameOf(currentTile)
              << "Arrow:" << TileDefs::trampolineArrow(currentTile)
              << "Gravity:" << gravityDirectionToString()
-             << "Velocity:" << velocity;
+             << "Velocity:" << velocity
+             << "BallPos:" << ball.position;
 }
 
 void GameScene::applyConveyorEffect(QChar currentTile)
@@ -1725,26 +1770,49 @@ void GameScene::resetRuntimeStateForCurrentMap()
     elapsedMs = 0;
     gameEnded = false;
     wasOnTrampoline = false;
+    isTrampolineLaunchMove = false;
 }
 
-void GameScene::selectBounceBlock()
-{
-    selectEditTile(TileDefs::Bounce);
-}
 
 void GameScene::selectSlowBlock()
 {
     selectEditTile(TileDefs::Slow);
 }
 
-void GameScene::selectConveyorBlock()
-{
-    selectEditTile(TileDefs::Conveyor);
-}
 
 void GameScene::selectTrampolineBlock()
 {
-    selectEditTile(TileDefs::Trampoline);
+    selectTrampolineUpRightBlock();
+}
+
+void GameScene::selectTrampolineUpRightBlock()
+{
+    selectEditTile(TileDefs::TrampolineUpRight);
+}
+
+void GameScene::selectTrampolineUpLeftBlock()
+{
+    selectEditTile(TileDefs::TrampolineUpLeft);
+}
+
+void GameScene::selectTrampolineDownRightBlock()
+{
+    selectEditTile(TileDefs::TrampolineDownRight);
+}
+
+void GameScene::selectTrampolineDownLeftBlock()
+{
+    selectEditTile(TileDefs::TrampolineDownLeft);
+}
+
+void GameScene::selectTrampolineRightBlock()
+{
+    selectEditTile(TileDefs::TrampolineRight);
+}
+
+void GameScene::selectTrampolineLeftBlock()
+{
+    selectEditTile(TileDefs::TrampolineLeft);
 }
 
 void GameScene::selectEditTile(QChar tile)
@@ -1780,7 +1848,7 @@ void GameScene::mousePressEvent(QGraphicsSceneMouseEvent *event)
         return;
     }
 
-    // 阶段 20：只能编辑候选点
+    // 玩家编辑模式只能修改设计师定义的候选点。
     if (!isCandidateEditPoint(gridPos)) {
         qDebug() << "Clicked non-candidate point:" << gridPos;
         event->accept();
@@ -1790,22 +1858,19 @@ void GameScene::mousePressEvent(QGraphicsSceneMouseEvent *event)
     QChar currentTile = tileAtGridPos(gridPos);
 
     if (event->button() == Qt::LeftButton) {
-        QChar nextTile = nextCandidateTile(currentTile);
-
-        setTileAtGridPos(gridPos, nextTile);
-
+        // 下方按钮选中了什么，就直接把候选点改成什么。
+        // 不再让玩家反复点同一个格子循环很多次。
+        setTileAtGridPos(gridPos, selectedEditTile);
         redrawEditedMap();
 
-        qDebug() << "Candidate point switched:"
+        qDebug() << "Candidate point set directly:"
                  << gridPos
                  << TileDefs::nameOf(currentTile)
                  << "->"
-                 << TileDefs::nameOf(nextTile);
+                 << TileDefs::nameOf(selectedEditTile);
     }
     else if (event->button() == Qt::RightButton) {
-        // 右键直接清空，方便演示
         setTileAtGridPos(gridPos, TileDefs::Empty);
-
         redrawEditedMap();
 
         qDebug() << "Candidate point reset to empty:" << gridPos;
@@ -1833,9 +1898,7 @@ bool GameScene::isGridPosInMap(const QPoint &gridPos) const
 
 bool GameScene::isEditableMechanism(QChar tile) const
 {
-    return TileDefs::isBounce(tile)
-           || TileDefs::isSlow(tile)
-           || TileDefs::isConveyor(tile)
+    return TileDefs::isSlow(tile)
            || TileDefs::isTrampoline(tile);
 }
 
@@ -1908,19 +1971,14 @@ bool GameScene::isCandidateEditPoint(const QPoint &gridPos) const
 
 QChar GameScene::nextCandidateTile(QChar currentTile) const
 {
+    // 旧版玩家编辑模式用“点击循环”。
+    // 现在已经改为按钮直接选择，这里只保留兜底逻辑。
+    // 反弹块和传送带已移除，不再参与循环。
     if (TileDefs::isEmpty(currentTile)) {
-        return TileDefs::Bounce;
-    }
-
-    if (TileDefs::isBounce(currentTile)) {
         return TileDefs::Slow;
     }
 
     if (TileDefs::isSlow(currentTile)) {
-        return TileDefs::Conveyor;
-    }
-
-    if (TileDefs::isConveyor(currentTile)) {
         return TileDefs::TrampolineUpRight;
     }
 
@@ -1937,11 +1995,18 @@ QChar GameScene::nextCandidateTile(QChar currentTile) const
     }
 
     if (TileDefs::isTrampolineDownLeft(currentTile)) {
+        return TileDefs::TrampolineRight;
+    }
+
+    if (TileDefs::isTrampolineRight(currentTile)) {
+        return TileDefs::TrampolineLeft;
+    }
+
+    if (TileDefs::isTrampolineLeft(currentTile)) {
         return TileDefs::Empty;
     }
 
-    // 保险：如果候选点上出现了别的东西，先变成弹射块。
-    return TileDefs::Bounce;
+    return TileDefs::Slow;
 }
 
 void GameScene::drawCandidateEditPoints()

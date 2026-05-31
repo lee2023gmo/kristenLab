@@ -26,6 +26,8 @@ static const QChar TrampolineUpRight = QChar('9');   // 蹦床：↗
 static const QChar TrampolineUpLeft = QChar('u');    // 蹦床：↖
 static const QChar TrampolineDownRight = QChar('v'); // 蹦床：↘
 static const QChar TrampolineDownLeft = QChar('w');  // 蹦床：↙
+static const QChar TrampolineRight = QChar('r');     // 蹦床：→
+static const QChar TrampolineLeft = QChar('l');      // 蹦床：←
 
 // 以后可以继续加
 static const QChar Key = QChar('K');          // 钥匙
@@ -85,7 +87,9 @@ inline bool isTrampoline(QChar tile)
     return tile == TrampolineUpRight
            || tile == TrampolineUpLeft
            || tile == TrampolineDownRight
-           || tile == TrampolineDownLeft;
+           || tile == TrampolineDownLeft
+           || tile == TrampolineRight
+           || tile == TrampolineLeft;
 }
 
 inline bool isTrampolineUpRight(QChar tile)
@@ -108,6 +112,16 @@ inline bool isTrampolineDownLeft(QChar tile)
     return tile == TrampolineDownLeft;
 }
 
+inline bool isTrampolineRight(QChar tile)
+{
+    return tile == TrampolineRight;
+}
+
+inline bool isTrampolineLeft(QChar tile)
+{
+    return tile == TrampolineLeft;
+}
+
 inline QString trampolineArrow(QChar tile)
 {
     if (tile == TrampolineUpRight) {
@@ -121,6 +135,12 @@ inline QString trampolineArrow(QChar tile)
     }
     if (tile == TrampolineDownLeft) {
         return "↙";
+    }
+    if (tile == TrampolineRight) {
+        return "→";
+    }
+    if (tile == TrampolineLeft) {
+        return "←";
     }
 
     return "";
@@ -167,6 +187,12 @@ inline QString nameOf(QChar tile)
     if (tile == TrampolineDownLeft) {
         return "蹦床↙";
     }
+    if (tile == TrampolineRight) {
+        return "蹦床→";
+    }
+    if (tile == TrampolineLeft) {
+        return "蹦床←";
+    }
 
     return "未知元素";
 }
@@ -184,7 +210,9 @@ inline bool isKnownTile(QChar tile)
            || tile == TrampolineUpRight
            || tile == TrampolineUpLeft
            || tile == TrampolineDownRight
-           || tile == TrampolineDownLeft;
+           || tile == TrampolineDownLeft
+           || tile == TrampolineRight
+           || tile == TrampolineLeft;
 }
 
 }

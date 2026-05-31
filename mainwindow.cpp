@@ -309,8 +309,8 @@ void MainWindow::setupGameWindow(int startLevelNumber)
         "color: white;"
         "border: 1px solid #4a5568;"
         "border-radius: 6px;"
-        "padding: 7px 14px;"
-        "font-size: 14px;"
+        "padding: 7px 10px;"
+        "font-size: 13px;"
         "}"
         "QPushButton:hover {"
         "background-color: #3a86ff;"
@@ -323,10 +323,13 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     buttonLayout->setVerticalSpacing(8);
 
     QPushButton *editButton = new QPushButton("进入编辑模式", buttonFrame);
-    QPushButton *bounceButton = new QPushButton("弹射块", buttonFrame);
     QPushButton *slowButton = new QPushButton("缓冲区", buttonFrame);
-    QPushButton *conveyorButton = new QPushButton("传送带", buttonFrame);
-    QPushButton *trampolineButton = new QPushButton("蹦床", buttonFrame);
+    QPushButton *trampolineUpRightButton = new QPushButton("蹦床↗", buttonFrame);
+    QPushButton *trampolineUpLeftButton = new QPushButton("蹦床↖", buttonFrame);
+    QPushButton *trampolineDownRightButton = new QPushButton("蹦床↘", buttonFrame);
+    QPushButton *trampolineDownLeftButton = new QPushButton("蹦床↙", buttonFrame);
+    QPushButton *trampolineRightButton = new QPushButton("蹦床→", buttonFrame);
+    QPushButton *trampolineLeftButton = new QPushButton("蹦床←", buttonFrame);
     QPushButton *runButton = new QPushButton("开始运行", buttonFrame);
     QPushButton *saveButton = new QPushButton("保存地图", buttonFrame);
 
@@ -343,10 +346,13 @@ void MainWindow::setupGameWindow(int startLevelNumber)
 
     QList<QPushButton *> buttons = {
         editButton,
-        bounceButton,
         slowButton,
-        conveyorButton,
-        trampolineButton,
+        trampolineUpRightButton,
+        trampolineUpLeftButton,
+        trampolineDownRightButton,
+        trampolineDownLeftButton,
+        trampolineRightButton,
+        trampolineLeftButton,
         runButton,
         saveButton,
         zoomOutButton,
@@ -366,12 +372,15 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     }
 
     buttonLayout->addWidget(editButton, 0, 0);
-    buttonLayout->addWidget(bounceButton, 0, 1);
-    buttonLayout->addWidget(slowButton, 0, 2);
-    buttonLayout->addWidget(conveyorButton, 0, 3);
-    buttonLayout->addWidget(trampolineButton, 0, 4);
-    buttonLayout->addWidget(runButton, 0, 5);
-    buttonLayout->addWidget(saveButton, 0, 6);
+    buttonLayout->addWidget(slowButton, 0, 1);
+    buttonLayout->addWidget(trampolineUpRightButton, 0, 2);
+    buttonLayout->addWidget(trampolineUpLeftButton, 0, 3);
+    buttonLayout->addWidget(trampolineDownRightButton, 0, 4);
+    buttonLayout->addWidget(trampolineDownLeftButton, 0, 5);
+    buttonLayout->addWidget(trampolineRightButton, 0, 6);
+    buttonLayout->addWidget(trampolineLeftButton, 0, 7);
+    buttonLayout->addWidget(runButton, 0, 8);
+    buttonLayout->addWidget(saveButton, 0, 9);
 
     buttonLayout->addWidget(zoomOutButton, 1, 0);
     buttonLayout->addWidget(zoomInButton, 1, 1);
@@ -382,7 +391,7 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     buttonLayout->addWidget(restartButton, 1, 5);
     buttonLayout->addWidget(pauseButton, 1, 6);
     buttonLayout->addWidget(nextButton, 1, 7);
-    buttonLayout->addWidget(menuButton, 1, 8);
+    buttonLayout->addWidget(menuButton, 1, 8, 1, 2);
 
     mainLayout->addWidget(buttonFrame);
 
@@ -425,11 +434,6 @@ void MainWindow::setupGameWindow(int startLevelNumber)
         gameScene->setFocus();
     });
 
-    connect(bounceButton, &QPushButton::clicked, this, [this]() {
-        gameScene->selectBounceBlock();
-        gameView->setFocus();
-        gameScene->setFocus();
-    });
 
     connect(slowButton, &QPushButton::clicked, this, [this]() {
         gameScene->selectSlowBlock();
@@ -437,14 +441,39 @@ void MainWindow::setupGameWindow(int startLevelNumber)
         gameScene->setFocus();
     });
 
-    connect(conveyorButton, &QPushButton::clicked, this, [this]() {
-        gameScene->selectConveyorBlock();
+
+    connect(trampolineUpRightButton, &QPushButton::clicked, this, [this]() {
+        gameScene->selectTrampolineUpRightBlock();
         gameView->setFocus();
         gameScene->setFocus();
     });
 
-    connect(trampolineButton, &QPushButton::clicked, this, [this]() {
-        gameScene->selectTrampolineBlock();
+    connect(trampolineUpLeftButton, &QPushButton::clicked, this, [this]() {
+        gameScene->selectTrampolineUpLeftBlock();
+        gameView->setFocus();
+        gameScene->setFocus();
+    });
+
+    connect(trampolineDownRightButton, &QPushButton::clicked, this, [this]() {
+        gameScene->selectTrampolineDownRightBlock();
+        gameView->setFocus();
+        gameScene->setFocus();
+    });
+
+    connect(trampolineDownLeftButton, &QPushButton::clicked, this, [this]() {
+        gameScene->selectTrampolineDownLeftBlock();
+        gameView->setFocus();
+        gameScene->setFocus();
+    });
+
+    connect(trampolineRightButton, &QPushButton::clicked, this, [this]() {
+        gameScene->selectTrampolineRightBlock();
+        gameView->setFocus();
+        gameScene->setFocus();
+    });
+
+    connect(trampolineLeftButton, &QPushButton::clicked, this, [this]() {
+        gameScene->selectTrampolineLeftBlock();
         gameView->setFocus();
         gameScene->setFocus();
     });

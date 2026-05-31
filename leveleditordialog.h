@@ -38,6 +38,8 @@ protected:
     void showEvent(QShowEvent *event) override;
 
 private:
+    static const QChar EditablePointTool;
+
     QLineEdit *nameEdit;
     QSpinBox *widthSpinBox;
     QSpinBox *heightSpinBox;
@@ -90,6 +92,10 @@ private:
     void clearOldStartTile();
 
     QChar currentTileFromCombo() const;
+    bool isEditablePointTool(QChar tile) const;
+    int editablePointToolComboIndex() const;
+    void selectEditablePointTool();
+
     QString tileDisplayText(QChar tile) const;
     QString tileToolTip(QChar tile) const;
     QColor tileBackgroundColor(QChar tile) const;
@@ -155,6 +161,7 @@ private:
     void updateWindowDrag(const QPoint &globalPosition);
     void stopWindowDrag();
     void moveDialogInsideScreen();
+    void fitDialogToAvailableScreen();
 };
 
 #endif // LEVELEDITORDIALOG_H
