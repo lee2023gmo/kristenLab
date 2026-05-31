@@ -18,7 +18,14 @@ static const QChar Bounce = QChar('5');       // 弹射块
 static const QChar Slow = QChar('6');         // 缓冲区
 static const QChar Conveyor = QChar('7');     // 传送带
 static const QChar Data = QChar('8');         // 数据碎片
-static const QChar Trampoline = QChar('9');   // 蹦床
+
+// 四方向蹦床。
+// 9 保持兼容旧版本：默认表示 45° 右上。
+static const QChar Trampoline = QChar('9');          // 蹦床：右上
+static const QChar TrampolineUpRight = QChar('9');   // 蹦床：↗
+static const QChar TrampolineUpLeft = QChar('u');    // 蹦床：↖
+static const QChar TrampolineDownRight = QChar('v'); // 蹦床：↘
+static const QChar TrampolineDownLeft = QChar('w');  // 蹦床：↙
 
 // 以后可以继续加
 static const QChar Key = QChar('K');          // 钥匙
@@ -75,7 +82,48 @@ inline bool isData(QChar tile)
 
 inline bool isTrampoline(QChar tile)
 {
-    return tile == Trampoline;
+    return tile == TrampolineUpRight
+           || tile == TrampolineUpLeft
+           || tile == TrampolineDownRight
+           || tile == TrampolineDownLeft;
+}
+
+inline bool isTrampolineUpRight(QChar tile)
+{
+    return tile == TrampolineUpRight;
+}
+
+inline bool isTrampolineUpLeft(QChar tile)
+{
+    return tile == TrampolineUpLeft;
+}
+
+inline bool isTrampolineDownRight(QChar tile)
+{
+    return tile == TrampolineDownRight;
+}
+
+inline bool isTrampolineDownLeft(QChar tile)
+{
+    return tile == TrampolineDownLeft;
+}
+
+inline QString trampolineArrow(QChar tile)
+{
+    if (tile == TrampolineUpRight) {
+        return "↗";
+    }
+    if (tile == TrampolineUpLeft) {
+        return "↖";
+    }
+    if (tile == TrampolineDownRight) {
+        return "↘";
+    }
+    if (tile == TrampolineDownLeft) {
+        return "↙";
+    }
+
+    return "";
 }
 
 inline QString nameOf(QChar tile)
@@ -107,8 +155,17 @@ inline QString nameOf(QChar tile)
     if (tile == Data) {
         return "数据碎片";
     }
-    if (tile == Trampoline) {
-        return "蹦床";
+    if (tile == TrampolineUpRight) {
+        return "蹦床↗";
+    }
+    if (tile == TrampolineUpLeft) {
+        return "蹦床↖";
+    }
+    if (tile == TrampolineDownRight) {
+        return "蹦床↘";
+    }
+    if (tile == TrampolineDownLeft) {
+        return "蹦床↙";
     }
 
     return "未知元素";
@@ -124,7 +181,10 @@ inline bool isKnownTile(QChar tile)
            || tile == Slow
            || tile == Conveyor
            || tile == Data
-           || tile == Trampoline;
+           || tile == TrampolineUpRight
+           || tile == TrampolineUpLeft
+           || tile == TrampolineDownRight
+           || tile == TrampolineDownLeft;
 }
 
 }

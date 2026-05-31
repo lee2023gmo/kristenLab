@@ -250,9 +250,9 @@ void GameScene::drawMap()
             else if (TileDefs::isTrampoline(tile)) {
                 QRectF rect(
                     x + 5,
-                    y + 10,
+                    y + 8,
                     TILE_SIZE - 10,
-                    TILE_SIZE - 20
+                    TILE_SIZE - 16
                     );
 
                 addRect(
@@ -261,7 +261,7 @@ void GameScene::drawMap()
                     QBrush(QColor("#d63384"))
                     );
 
-                addCenteredTextInRect("T", rect, Qt::white);
+                addCenteredTextInRect(TileDefs::trampolineArrow(tile), rect, Qt::white);
             }
             else if (TileDefs::isData(tile)) {
                 QRectF rect(
@@ -1478,22 +1478,27 @@ void GameScene::applyTrampolineEffect(QChar currentTile)
 
     moveSpeed = BALL_SPEED;
 
-    if (velocity.y() > 0) {
-        // 竖直向下落到蹦床：
-        // 45° 斜向右上弹出。
-        //
-        // 注意：这里保留 gravityDirection 为 Up，
-        // 用于状态栏显示“重力：↑”，但实际速度是斜向右上。
+    if (TileDefs::isTrampolineUpRight(currentTile)) {
         gravityDirection = GravityDirection::Up;
         velocity = QPointF(moveSpeed, -moveSpeed);
-    } else {
-        // 竖直向上撞到蹦床时做对称处理：
-        // 45° 斜向右下弹出。
+    }
+    else if (TileDefs::isTrampolineUpLeft(currentTile)) {
+        gravityDirection = GravityDirection::Up;
+        velocity = QPointF(-moveSpeed, -moveSpeed);
+    }
+    else if (TileDefs::isTrampolineDownRight(currentTile)) {
         gravityDirection = GravityDirection::Down;
         velocity = QPointF(moveSpeed, moveSpeed);
     }
+    else if (TileDefs::isTrampolineDownLeft(currentTile)) {
+        gravityDirection = GravityDirection::Down;
+        velocity = QPointF(-moveSpeed, moveSpeed);
+    }
 
-    qDebug() << "Trampoline 45-degree triggered. Gravity:" << gravityDirectionToString()
+    qDebug() << "Directional trampoline triggered."
+             << TileDefs::nameOf(currentTile)
+             << "Arrow:" << TileDefs::trampolineArrow(currentTile)
+             << "Gravity:" << gravityDirectionToString()
              << "Velocity:" << velocity;
 }
 
@@ -1916,14 +1921,26 @@ QChar GameScene::nextCandidateTile(QChar currentTile) const
     }
 
     if (TileDefs::isConveyor(currentTile)) {
-        return TileDefs::Trampoline;
+        return TileDefs::TrampolineUpRight;
     }
 
-    if (TileDefs::isTrampoline(currentTile)) {
+    if (TileDefs::isTrampolineUpRight(currentTile)) {
+        return TileDefs::TrampolineUpLeft;
+    }
+
+    if (TileDefs::isTrampolineUpLeft(currentTile)) {
+        return TileDefs::TrampolineDownRight;
+    }
+
+    if (TileDefs::isTrampolineDownRight(currentTile)) {
+        return TileDefs::TrampolineDownLeft;
+    }
+
+    if (TileDefs::isTrampolineDownLeft(currentTile)) {
         return TileDefs::Empty;
     }
 
-    // 保险：如果候选点上出现了别的东西，先变成弹射块
+    // 保险：如果候选点上出现了别的东西，先变成弹射块。
     return TileDefs::Bounce;
 }
 

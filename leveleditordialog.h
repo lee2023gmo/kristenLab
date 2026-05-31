@@ -3,15 +3,19 @@
 
 #include <QChar>
 #include <QDialog>
+#include <QPoint>
+#include <QSet>
 #include <QString>
 #include <QStringList>
+#include <QVector>
 
-class QPoint;
 
 class QComboBox;
 class QLabel;
 class QPlainTextEdit;
 class QLineEdit;
+class QMouseEvent;
+class QShowEvent;
 class QPushButton;
 class QSpinBox;
 class QTableWidget;
@@ -28,6 +32,10 @@ signals:
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
+    void mouseMoveEvent(QMouseEvent *event) override;
+    void mouseReleaseEvent(QMouseEvent *event) override;
+    void showEvent(QShowEvent *event) override;
 
 private:
     QLineEdit *nameEdit;
@@ -39,12 +47,18 @@ private:
     QComboBox *saveFolderComboBox;
     QLabel *currentToolPreviewLabel;
     QLabel *zoomInfoLabel;
+    QLabel *editablePointInfoLabel;
+    QLabel *dragWindowHandleLabel;
     QChar currentTile;
     int mapCellSize;
 
     bool isPainting;
     bool isErasing;
     bool isBulkUpdating;
+    bool isEditablePointMode;
+    bool isDraggingWindow;
+    QPoint dragWindowOffset;
+    QSet<QString> editablePointKeys;
 
     QLabel *mapPlaceholderLabel;
     QTableWidget *mapTable;
@@ -56,6 +70,8 @@ private:
     QPushButton *zoomOutButton;
     QPushButton *zoomInButton;
     QPushButton *resetZoomButton;
+    QPushButton *editablePointModeButton;
+    QPushButton *clearEditablePointsButton;
     QPushButton *importButton;
     QPushButton *validateButton;
     QPushButton *saveButton;
@@ -95,6 +111,23 @@ private:
     void zoomOutMap();
     void resetMapZoom();
     void autoFitMapZoom();
+
+    // 玩家编辑模式候选点设计
+    QString editablePointKey(int row, int col) const;
+    bool isEditablePoint(int row, int col) const;
+    bool canBeEditablePoint(int row, int col, QString *errorMessage = nullptr) const;
+    void addEditablePoint(int row, int col);
+    void removeEditablePoint(int row, int col);
+    void clearEditablePoints();
+    void setEditablePointMode(bool enabled);
+    void updateEditablePointInfo();
+    void refreshAllCellStyles();
+    QVector<QPoint> buildEditablePointsFromTable() const;
+    bool validateEditablePoints(const QStringList &mapData,
+                                const QVector<QPoint> &editablePoints,
+                                QString *errorMessage) const;
+    void loadEditablePointsToTable(const QVector<QPoint> &editablePoints);
+
     void paintCellAtViewportPosition(const QPoint &position, QChar tile);
 
     // 阶段 27：保存为 JSON 文件
@@ -110,10 +143,18 @@ private:
                            QString *name,
                            int *targetReverseCount,
                            QStringList *mapData,
+                           QVector<QPoint> *editablePoints,
                            QString *errorMessage) const;
     void loadMapDataToTable(const QStringList &mapData);
 
     void showStageTip(const QString &actionName);
+
+    // 标题栏出屏时的窗口拖动辅助
+    bool isBottomDragArea(const QPoint &position) const;
+    void startWindowDrag(const QPoint &globalPosition);
+    void updateWindowDrag(const QPoint &globalPosition);
+    void stopWindowDrag();
+    void moveDialogInsideScreen();
 };
 
 #endif // LEVELEDITORDIALOG_H

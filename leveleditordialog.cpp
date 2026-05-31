@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "leveleditordialog.h"
 #include "tiledefs.h"
 
@@ -15,6 +16,9 @@
 #include <QFormLayout>
 #include <QFrame>
 #include <QGridLayout>
+#include <QShowEvent>
+#include <QScreen>
+#include <QGuiApplication>
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QJsonArray>
@@ -46,11 +50,16 @@ LevelEditorDialog::LevelEditorDialog(QWidget *parent)
     , saveFolderComboBox(nullptr)
     , currentToolPreviewLabel(nullptr)
     , zoomInfoLabel(nullptr)
+    , editablePointInfoLabel(nullptr)
+    , dragWindowHandleLabel(nullptr)
     , currentTile(TileDefs::Empty)
     , mapCellSize(42)
     , isPainting(false)
     , isErasing(false)
     , isBulkUpdating(false)
+    , isEditablePointMode(false)
+    , isDraggingWindow(false)
+    , dragWindowOffset(QPoint(0, 0))
     , mapPlaceholderLabel(nullptr)
     , mapTable(nullptr)
     , mapPreviewEdit(nullptr)
@@ -60,6 +69,8 @@ LevelEditorDialog::LevelEditorDialog(QWidget *parent)
     , zoomOutButton(nullptr)
     , zoomInButton(nullptr)
     , resetZoomButton(nullptr)
+    , editablePointModeButton(nullptr)
+    , clearEditablePointsButton(nullptr)
     , importButton(nullptr)
     , validateButton(nullptr)
     , saveButton(nullptr)
@@ -71,7 +82,33 @@ LevelEditorDialog::LevelEditorDialog(QWidget *parent)
 
 bool LevelEditorDialog::eventFilter(QObject *watched, QEvent *event)
 {
-    if (watched == mapTable->viewport()) {
+    if (watched == dragWindowHandleLabel) {
+        if (event->type() == QEvent::MouseButtonPress) {
+            QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
+
+            if (mouseEvent->button() == Qt::LeftButton) {
+                startWindowDrag(mouseEvent->globalPosition().toPoint());
+                mouseEvent->accept();
+                return true;
+            }
+        }
+        else if (event->type() == QEvent::MouseMove) {
+            QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
+
+            if (isDraggingWindow) {
+                updateWindowDrag(mouseEvent->globalPosition().toPoint());
+                mouseEvent->accept();
+                return true;
+            }
+        }
+        else if (event->type() == QEvent::MouseButtonRelease) {
+            stopWindowDrag();
+            event->accept();
+            return true;
+        }
+    }
+
+    if (mapTable != nullptr && watched == mapTable->viewport()) {
         if (event->type() == QEvent::MouseButtonPress) {
             QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
 
@@ -193,7 +230,10 @@ void LevelEditorDialog::setupUi()
     tileComboBox->addItem("缓冲区 SLOW", QString(TileDefs::Slow));
     tileComboBox->addItem("传送带 →", QString(TileDefs::Conveyor));
     tileComboBox->addItem("数据碎片 *", QString(TileDefs::Data));
-    tileComboBox->addItem("蹦床 T", QString(TileDefs::Trampoline));
+    tileComboBox->addItem("蹦床 ↗", QString(TileDefs::TrampolineUpRight));
+    tileComboBox->addItem("蹦床 ↖", QString(TileDefs::TrampolineUpLeft));
+    tileComboBox->addItem("蹦床 ↘", QString(TileDefs::TrampolineDownRight));
+    tileComboBox->addItem("蹦床 ↙", QString(TileDefs::TrampolineDownLeft));
     tileComboBox->setCurrentIndex(0);
 
     saveFolderComboBox = new QComboBox(infoFrame);
@@ -216,6 +256,17 @@ void LevelEditorDialog::setupUi()
         "padding: 4px;"
         );
 
+    editablePointInfoLabel = new QLabel(infoFrame);
+    editablePointInfoLabel->setAlignment(Qt::AlignCenter);
+    editablePointInfoLabel->setMinimumHeight(30);
+    editablePointInfoLabel->setStyleSheet(
+        "background-color: #10131f;"
+        "color: #facc15;"
+        "border: 1px solid #4a5568;"
+        "border-radius: 6px;"
+        "padding: 4px;"
+        );
+
     formLayout->addRow("关卡名：", nameEdit);
     formLayout->addRow("宽度：", widthSpinBox);
     formLayout->addRow("高度：", heightSpinBox);
@@ -223,6 +274,7 @@ void LevelEditorDialog::setupUi()
     formLayout->addRow("元素：", tileComboBox);
     formLayout->addRow("预览：", currentToolPreviewLabel);
     formLayout->addRow("缩放：", zoomInfoLabel);
+    formLayout->addRow("候选点：", editablePointInfoLabel);
     formLayout->addRow("保存：", saveFolderComboBox);
 
     sideLayout->addLayout(formLayout);
@@ -241,6 +293,8 @@ void LevelEditorDialog::setupUi()
     zoomOutButton = new QPushButton("缩小地图", buttonFrame);
     zoomInButton = new QPushButton("放大地图", buttonFrame);
     resetZoomButton = new QPushButton("还原缩放", buttonFrame);
+    editablePointModeButton = new QPushButton("候选点模式：关", buttonFrame);
+    clearEditablePointsButton = new QPushButton("清候选点", buttonFrame);
     importButton = new QPushButton("导入 JSON", buttonFrame);
     validateButton = new QPushButton("校验地图", buttonFrame);
     saveButton = new QPushButton("保存关卡", buttonFrame);
@@ -253,6 +307,8 @@ void LevelEditorDialog::setupUi()
         zoomOutButton,
         zoomInButton,
         resetZoomButton,
+        editablePointModeButton,
+        clearEditablePointsButton,
         importButton,
         validateButton,
         saveButton,
@@ -271,9 +327,11 @@ void LevelEditorDialog::setupUi()
     buttonLayout->addWidget(zoomOutButton, 2, 0);
     buttonLayout->addWidget(zoomInButton, 2, 1);
     buttonLayout->addWidget(resetZoomButton, 3, 0, 1, 2);
-    buttonLayout->addWidget(validateButton, 4, 0);
-    buttonLayout->addWidget(saveButton, 4, 1);
-    buttonLayout->addWidget(closeButton, 5, 0, 1, 2);
+    buttonLayout->addWidget(editablePointModeButton, 4, 0, 1, 2);
+    buttonLayout->addWidget(clearEditablePointsButton, 5, 0, 1, 2);
+    buttonLayout->addWidget(validateButton, 6, 0);
+    buttonLayout->addWidget(saveButton, 6, 1);
+    buttonLayout->addWidget(closeButton, 7, 0, 1, 2);
 
     sideLayout->addWidget(buttonFrame);
 
@@ -351,6 +409,21 @@ void LevelEditorDialog::setupUi()
 
     contentLayout->addWidget(infoFrame);
     contentLayout->addWidget(mapFrame, 1);
+
+    dragWindowHandleLabel = new QLabel("⇕ 标题栏被屏幕挡住时，可按住这里或窗口底部空白处拖动窗口", this);
+    dragWindowHandleLabel->setAlignment(Qt::AlignCenter);
+    dragWindowHandleLabel->setMinimumHeight(24);
+    dragWindowHandleLabel->setCursor(Qt::SizeAllCursor);
+    dragWindowHandleLabel->installEventFilter(this);
+    dragWindowHandleLabel->setStyleSheet(
+        "background-color: #10131f;"
+        "color: #94a3b8;"
+        "border: 1px dashed #4a5568;"
+        "border-radius: 6px;"
+        "font-size: 12px;"
+        "padding: 3px;"
+        );
+    mainLayout->addWidget(dragWindowHandleLabel);
 
     setStyleSheet(
         "QDialog {"
@@ -433,6 +506,13 @@ void LevelEditorDialog::setupConnections()
     connect(resetZoomButton, &QPushButton::clicked,
             this, &LevelEditorDialog::resetMapZoom);
 
+    connect(editablePointModeButton, &QPushButton::clicked, this, [this]() {
+        setEditablePointMode(!isEditablePointMode);
+    });
+
+    connect(clearEditablePointsButton, &QPushButton::clicked,
+            this, &LevelEditorDialog::clearEditablePoints);
+
     connect(importButton, &QPushButton::clicked,
             this, &LevelEditorDialog::importLevelFromJson);
 
@@ -442,7 +522,11 @@ void LevelEditorDialog::setupConnections()
     });
 
     connect(mapTable, &QTableWidget::cellDoubleClicked, this, [this](int row, int col) {
-        setCellTile(row, col, TileDefs::Empty);
+        if (isEditablePointMode) {
+            removeEditablePoint(row, col);
+        } else {
+            setCellTile(row, col, TileDefs::Empty);
+        }
     });
 
     connect(validateButton, &QPushButton::clicked,
@@ -455,6 +539,7 @@ void LevelEditorDialog::setupConnections()
 
     updateCurrentToolPreview();
     updateZoomInfo();
+    updateEditablePointInfo();
 }
 
 void LevelEditorDialog::generateMapTable()
@@ -465,6 +550,8 @@ void LevelEditorDialog::generateMapTable()
     QSignalBlocker blocker(mapTable);
     mapTable->setUpdatesEnabled(false);
     isBulkUpdating = true;
+
+    editablePointKeys.clear();
 
     mapTable->clear();
     mapTable->setRowCount(rowCount);
@@ -497,6 +584,7 @@ void LevelEditorDialog::generateMapTable()
     mapTable->setCurrentCell(0, 0);
     autoFitMapZoom();
     updateMapPreview();
+    updateEditablePointInfo();
     adjustEditorSizeToMap();
 }
 
@@ -534,8 +622,13 @@ void LevelEditorDialog::setCellTile(int row, int col, QChar tile)
     }
 
     item->setData(Qt::UserRole, QString(tile));
-    item->setText(tileDisplayText(tile));
-    item->setToolTip(tileToolTip(tile));
+
+    QString editableError;
+    if (editablePointKeys.contains(editablePointKey(row, col))
+        && !canBeEditablePoint(row, col, &editableError)) {
+        editablePointKeys.remove(editablePointKey(row, col));
+        updateEditablePointInfo();
+    }
 
     updateCellStyle(row, col);
 
@@ -584,14 +677,42 @@ void LevelEditorDialog::updateCellStyle(int row, int col)
     }
 
     QChar tile = cellTile(row, col);
+    bool editablePoint = isEditablePoint(row, col);
 
-    item->setBackground(QBrush(tileBackgroundColor(tile)));
-    item->setForeground(QBrush(tileTextColor(tile)));
+    QColor background = tileBackgroundColor(tile);
+    QColor foreground = tileTextColor(tile);
+
+    if (editablePoint) {
+        background = QColor("#6b4f00");
+        foreground = QColor("#fff7b0");
+    }
+
+    item->setBackground(QBrush(background));
+    item->setForeground(QBrush(foreground));
+
+    QString displayText = tileDisplayText(tile);
+
+    if (editablePoint) {
+        if (TileDefs::isEmpty(tile)) {
+            displayText = "E";
+        } else {
+            displayText = displayText + "*";
+        }
+    }
+
+    item->setText(displayText);
+
+    QString toolTip = tileToolTip(tile);
+
+    if (editablePoint) {
+        toolTip += "；玩家编辑模式可改";
+    }
+
+    item->setToolTip(toolTip);
 
     QFont font = item->font();
-    font.setBold(!TileDefs::isEmpty(tile));
+    font.setBold(editablePoint || !TileDefs::isEmpty(tile));
 
-    // 地图缩得很小时，字体也要一起缩小，否则 0/1 会挤出格子，看起来像没有缩放成功。
     int fontSize = qBound(4, mapCellSize / 2, 11);
 
     if (TileDefs::isSlow(tile) || TileDefs::isEnd(tile)) {
@@ -675,7 +796,7 @@ QString LevelEditorDialog::tileDisplayText(QChar tile) const
     }
 
     if (TileDefs::isTrampoline(tile)) {
-        return "T";
+        return TileDefs::trampolineArrow(tile);
     }
 
     return "?";
@@ -872,7 +993,17 @@ bool LevelEditorDialog::validateCurrentMap(QString *errorMessage) const
         return false;
     }
 
-    return validateMapData(mapData, errorMessage);
+    if (!validateMapData(mapData, errorMessage)) {
+        return false;
+    }
+
+    QVector<QPoint> editablePoints = buildEditablePointsFromTable();
+
+    if (!validateEditablePoints(mapData, editablePoints, errorMessage)) {
+        return false;
+    }
+
+    return true;
 }
 
 void LevelEditorDialog::validateMapByButton()
@@ -893,9 +1024,10 @@ void LevelEditorDialog::validateMapByButton()
     QMessageBox::information(
         this,
         "地图校验通过",
-        QString("地图校验通过！\n\n地图大小：%1 行 × %2 列\n可以保存为 JSON 文件。")
+        QString("地图校验通过！\n\n地图大小：%1 行 × %2 列\n玩家编辑候选点：%3 个\n可以保存为 JSON 文件。")
             .arg(mapData.size())
             .arg(mapData.isEmpty() ? 0 : mapData[0].size())
+            .arg(editablePointKeys.size())
         );
 }
 
@@ -993,6 +1125,19 @@ void LevelEditorDialog::updateCurrentToolPreview()
         return;
     }
 
+    if (isEditablePointMode) {
+        currentToolPreviewLabel->setText("当前模式：玩家编辑候选点");
+        currentToolPreviewLabel->setStyleSheet(
+            "background-color: #6b4f00;"
+            "color: #fff7b0;"
+            "border: 2px solid #facc15;"
+            "border-radius: 8px;"
+            "font-weight: bold;"
+            "padding: 6px;"
+            );
+        return;
+    }
+
     QChar tile = currentTile;
     QString text = QString("当前工具：%1").arg(tileToolTip(tile));
 
@@ -1053,6 +1198,7 @@ void LevelEditorDialog::updateMapPreview()
 void LevelEditorDialog::adjustEditorSizeToMap()
 {
     if (mapTable == nullptr || !mapTable->isVisible()) {
+        moveDialogInsideScreen();
         return;
     }
 
@@ -1060,19 +1206,33 @@ void LevelEditorDialog::adjustEditorSizeToMap()
     const int tableHeight = mapTable->rowCount() * mapCellSize + 40;
 
     // 不再把 mapTable 的最小尺寸强行设成整张地图大小。
-    // 否则大地图会把表框撑爆，横向滚动条也不好用。
-    // 现在表格视口保持一个合理大小，超出的内容靠横向/纵向滚动条浏览。
+    // 超出部分使用横向/纵向滚动条浏览。
     const int viewportMinWidth = qBound(520, tableWidth, 1080);
-    const int viewportMinHeight = qBound(360, tableHeight, 620);
+    const int viewportMinHeight = qBound(320, tableHeight, 560);
 
     mapTable->setMinimumWidth(viewportMinWidth);
     mapTable->setMinimumHeight(viewportMinHeight);
 
+    QRect availableGeometry;
+
+    if (QScreen *screen = QGuiApplication::screenAt(frameGeometry().center())) {
+        availableGeometry = screen->availableGeometry();
+    } else if (QScreen *screen = QGuiApplication::primaryScreen()) {
+        availableGeometry = screen->availableGeometry();
+    }
+
+    int maxWindowHeight = 900;
+
+    if (availableGeometry.isValid()) {
+        maxWindowHeight = qMax(560, availableGeometry.height() - 60);
+    }
+
     const int sidePanelWidth = 340;
     const int targetWindowWidth = qMin(qMax(width(), sidePanelWidth + viewportMinWidth + 90), 1480);
-    const int targetWindowHeight = qMin(qMax(height(), viewportMinHeight + 260), 920);
+    const int targetWindowHeight = qMin(qMin(qMax(height(), viewportMinHeight + 290), 920), maxWindowHeight);
 
     resize(targetWindowWidth, targetWindowHeight);
+    moveDialogInsideScreen();
 }
 
 void LevelEditorDialog::setMapCellSize(int cellSize)
@@ -1178,6 +1338,270 @@ void LevelEditorDialog::autoFitMapZoom()
     }
 }
 
+QString LevelEditorDialog::editablePointKey(int row, int col) const
+{
+    return QString("%1,%2").arg(col).arg(row);
+}
+
+bool LevelEditorDialog::isEditablePoint(int row, int col) const
+{
+    return editablePointKeys.contains(editablePointKey(row, col));
+}
+
+bool LevelEditorDialog::canBeEditablePoint(int row, int col, QString *errorMessage) const
+{
+    if (mapTable == nullptr || !mapTable->isVisible()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "请先生成或导入地图。";
+        }
+        return false;
+    }
+
+    if (row < 0 || row >= mapTable->rowCount()
+        || col < 0 || col >= mapTable->columnCount()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QString("候选点越界：row=%1 col=%2").arg(row).arg(col);
+        }
+        return false;
+    }
+
+    QChar tile = cellTile(row, col);
+
+    if (TileDefs::isWall(tile)
+        || TileDefs::isStart(tile)
+        || TileDefs::isEnd(tile)
+        || TileDefs::isDeath(tile)
+        || TileDefs::isData(tile)) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QString("候选点不能放在 %1 上。").arg(TileDefs::nameOf(tile));
+        }
+        return false;
+    }
+
+    return true;
+}
+
+void LevelEditorDialog::addEditablePoint(int row, int col)
+{
+    QString errorMessage;
+
+    if (!canBeEditablePoint(row, col, &errorMessage)) {
+        return;
+    }
+
+    QString key = editablePointKey(row, col);
+
+    if (!editablePointKeys.contains(key)) {
+        editablePointKeys.insert(key);
+        updateCellStyle(row, col);
+        updateEditablePointInfo();
+    }
+}
+
+void LevelEditorDialog::removeEditablePoint(int row, int col)
+{
+    QString key = editablePointKey(row, col);
+
+    if (editablePointKeys.remove(key) > 0) {
+        updateCellStyle(row, col);
+        updateEditablePointInfo();
+    }
+}
+
+void LevelEditorDialog::clearEditablePoints()
+{
+    if (editablePointKeys.isEmpty()) {
+        QMessageBox::information(
+            this,
+            "没有候选点",
+            "当前地图还没有玩家编辑候选点。"
+            );
+        return;
+    }
+
+    QMessageBox::StandardButton result = QMessageBox::question(
+        this,
+        "清空候选点",
+        QString("确定要清空全部 %1 个玩家编辑候选点吗？\n\n这不会改变地图元素，只会清除玩家编辑模式可编辑的位置。")
+            .arg(editablePointKeys.size()),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No
+        );
+
+    if (result != QMessageBox::Yes) {
+        return;
+    }
+
+    QVector<QPoint> oldPoints = buildEditablePointsFromTable();
+    editablePointKeys.clear();
+
+    for (const QPoint &point : oldPoints) {
+        if (mapTable != nullptr
+            && point.y() >= 0 && point.y() < mapTable->rowCount()
+            && point.x() >= 0 && point.x() < mapTable->columnCount()) {
+            updateCellStyle(point.y(), point.x());
+        }
+    }
+
+    updateEditablePointInfo();
+}
+
+void LevelEditorDialog::setEditablePointMode(bool enabled)
+{
+    isEditablePointMode = enabled;
+
+    if (editablePointModeButton != nullptr) {
+        editablePointModeButton->setText(
+            isEditablePointMode ? "候选点模式：开" : "候选点模式：关"
+            );
+        editablePointModeButton->setStyleSheet(
+            isEditablePointMode
+                ? "background-color: #6b4f00; color: #fff7b0; border: 1px solid #facc15; border-radius: 8px; padding: 8px 10px; font-size: 14px;"
+                : ""
+            );
+    }
+
+    updateCurrentToolPreview();
+    updateEditablePointInfo();
+}
+
+void LevelEditorDialog::updateEditablePointInfo()
+{
+    if (editablePointInfoLabel == nullptr) {
+        return;
+    }
+
+    editablePointInfoLabel->setText(
+        QString("%1 个可编辑位置").arg(editablePointKeys.size())
+        );
+}
+
+void LevelEditorDialog::refreshAllCellStyles()
+{
+    if (mapTable == nullptr) {
+        return;
+    }
+
+    QSignalBlocker blocker(mapTable);
+    mapTable->setUpdatesEnabled(false);
+
+    for (int row = 0; row < mapTable->rowCount(); ++row) {
+        for (int col = 0; col < mapTable->columnCount(); ++col) {
+            updateCellStyle(row, col);
+        }
+    }
+
+    mapTable->setUpdatesEnabled(true);
+}
+
+QVector<QPoint> LevelEditorDialog::buildEditablePointsFromTable() const
+{
+    QVector<QPoint> points;
+
+    for (const QString &key : editablePointKeys) {
+        QStringList parts = key.split(',');
+
+        if (parts.size() != 2) {
+            continue;
+        }
+
+        bool colOk = false;
+        bool rowOk = false;
+        int col = parts[0].toInt(&colOk);
+        int row = parts[1].toInt(&rowOk);
+
+        if (colOk && rowOk) {
+            points.append(QPoint(col, row));
+        }
+    }
+
+    std::sort(points.begin(), points.end(), [](const QPoint &a, const QPoint &b) {
+        if (a.y() == b.y()) {
+            return a.x() < b.x();
+        }
+
+        return a.y() < b.y();
+    });
+
+    return points;
+}
+
+bool LevelEditorDialog::validateEditablePoints(const QStringList &mapData,
+                                               const QVector<QPoint> &editablePoints,
+                                               QString *errorMessage) const
+{
+    QSet<QString> usedKeys;
+
+    for (const QPoint &point : editablePoints) {
+        int col = point.x();
+        int row = point.y();
+
+        if (row < 0 || row >= mapData.size()) {
+            if (errorMessage != nullptr) {
+                *errorMessage = QString("玩家编辑候选点行号越界：row=%1 col=%2").arg(row).arg(col);
+            }
+            return false;
+        }
+
+        if (col < 0 || col >= mapData[row].size()) {
+            if (errorMessage != nullptr) {
+                *errorMessage = QString("玩家编辑候选点列号越界：row=%1 col=%2").arg(row).arg(col);
+            }
+            return false;
+        }
+
+        QString key = QString("%1,%2").arg(col).arg(row);
+
+        if (usedKeys.contains(key)) {
+            if (errorMessage != nullptr) {
+                *errorMessage = QString("玩家编辑候选点重复：row=%1 col=%2").arg(row).arg(col);
+            }
+            return false;
+        }
+
+        usedKeys.insert(key);
+
+        QChar tile = mapData[row][col];
+
+        if (TileDefs::isWall(tile)
+            || TileDefs::isStart(tile)
+            || TileDefs::isEnd(tile)
+            || TileDefs::isDeath(tile)
+            || TileDefs::isData(tile)) {
+            if (errorMessage != nullptr) {
+                *errorMessage = QString("玩家编辑候选点不能放在 %1 上：row=%2 col=%3")
+                                    .arg(TileDefs::nameOf(tile))
+                                    .arg(row)
+                                    .arg(col);
+            }
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void LevelEditorDialog::loadEditablePointsToTable(const QVector<QPoint> &editablePoints)
+{
+    editablePointKeys.clear();
+
+    if (mapTable == nullptr) {
+        return;
+    }
+
+    for (const QPoint &point : editablePoints) {
+        if (point.y() < 0 || point.y() >= mapTable->rowCount()
+            || point.x() < 0 || point.x() >= mapTable->columnCount()) {
+            continue;
+        }
+
+        editablePointKeys.insert(editablePointKey(point.y(), point.x()));
+    }
+
+    refreshAllCellStyles();
+    updateEditablePointInfo();
+}
+
 void LevelEditorDialog::paintCellAtViewportPosition(const QPoint &position, QChar tile)
 {
     if (mapTable == nullptr || !mapTable->isVisible()) {
@@ -1190,7 +1614,19 @@ void LevelEditorDialog::paintCellAtViewportPosition(const QPoint &position, QCha
         return;
     }
 
-    setCellTile(index.row(), index.column(), tile);
+    const int row = index.row();
+    const int col = index.column();
+
+    if (isEditablePointMode) {
+        if (isErasing || tile == TileDefs::Empty) {
+            removeEditablePoint(row, col);
+        } else {
+            addEditablePoint(row, col);
+        }
+        return;
+    }
+
+    setCellTile(row, col, tile);
 }
 
 QString LevelEditorDialog::selectedFolderName() const
@@ -1278,6 +1714,7 @@ void LevelEditorDialog::saveCurrentLevel()
     }
 
     QStringList mapData = buildMapDataFromTable();
+    QVector<QPoint> editablePoints = buildEditablePointsFromTable();
 
     QJsonObject rootObject;
     rootObject.insert("name", levelName);
@@ -1290,6 +1727,17 @@ void LevelEditorDialog::saveCurrentLevel()
     }
 
     rootObject.insert("map", mapArray);
+
+    QJsonArray editablePointsArray;
+
+    for (const QPoint &point : editablePoints) {
+        QJsonObject pointObject;
+        pointObject.insert("row", point.y());
+        pointObject.insert("col", point.x());
+        editablePointsArray.append(pointObject);
+    }
+
+    rootObject.insert("editablePoints", editablePointsArray);
 
     QJsonDocument document(rootObject);
 
@@ -1329,8 +1777,9 @@ void LevelEditorDialog::saveCurrentLevel()
     QMessageBox::StandardButton result = QMessageBox::question(
         this,
         "保存成功",
-        QString("保存成功！\n\n文件已保存到项目根目录下的 %1 文件夹。\n\n完整路径：\n%2\n\n是否立即回到关卡选择界面查看新关卡？")
+        QString("保存成功！\n\n文件已保存到项目根目录下的 %1 文件夹。\n\n玩家编辑候选点：%2 个\n\n完整路径：\n%3\n\n是否立即回到关卡选择界面查看新关卡？")
             .arg(folderName)
+            .arg(editablePoints.size())
             .arg(filePath),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::Yes
@@ -1340,7 +1789,6 @@ void LevelEditorDialog::saveCurrentLevel()
         emit requestOpenLevelSelect();
     }
 }
-
 
 void LevelEditorDialog::importLevelFromJson()
 {
@@ -1358,9 +1806,10 @@ void LevelEditorDialog::importLevelFromJson()
     QString name;
     int targetReverseCount = 0;
     QStringList mapData;
+    QVector<QPoint> editablePoints;
     QString errorMessage;
 
-    if (!loadLevelJsonFile(filePath, &name, &targetReverseCount, &mapData, &errorMessage)) {
+    if (!loadLevelJsonFile(filePath, &name, &targetReverseCount, &mapData, &editablePoints, &errorMessage)) {
         QMessageBox::warning(
             this,
             "导入失败",
@@ -1374,6 +1823,7 @@ void LevelEditorDialog::importLevelFromJson()
     nameEdit->setText(name);
     targetReverseSpinBox->setValue(targetReverseCount);
     loadMapDataToTable(mapData);
+    loadEditablePointsToTable(editablePoints);
 
     // 导入后默认另存到 custom_levels，避免误覆盖内置关卡。
     saveFolderComboBox->setCurrentIndex(0);
@@ -1381,8 +1831,9 @@ void LevelEditorDialog::importLevelFromJson()
     QMessageBox::information(
         this,
         "导入成功",
-        QString("已成功导入关卡：%1\n\n来源文件：\n%2\n\n你可以继续编辑，修改后建议保存到 custom_levels。")
+        QString("已成功导入关卡：%1\n\n玩家编辑候选点：%2 个\n\n来源文件：\n%3\n\n你可以继续编辑，修改后建议保存到 custom_levels。")
             .arg(name)
+            .arg(editablePoints.size())
             .arg(filePath)
         );
 }
@@ -1391,6 +1842,7 @@ bool LevelEditorDialog::loadLevelJsonFile(const QString &filePath,
                                           QString *name,
                                           int *targetReverseCount,
                                           QStringList *mapData,
+                                          QVector<QPoint> *editablePoints,
                                           QString *errorMessage) const
 {
     QFile file(filePath);
@@ -1474,6 +1926,66 @@ bool LevelEditorDialog::loadLevelJsonFile(const QString &filePath,
         return false;
     }
 
+    QVector<QPoint> loadedEditablePoints;
+
+    QJsonValue editablePointsValue = object.value("editablePoints");
+
+    if (editablePointsValue.isArray()) {
+        QJsonArray editablePointsArray = editablePointsValue.toArray();
+
+        for (int i = 0; i < editablePointsArray.size(); ++i) {
+            QJsonValue pointValue = editablePointsArray.at(i);
+
+            if (pointValue.isObject()) {
+                QJsonObject pointObject = pointValue.toObject();
+
+                if (!pointObject.contains("row") || !pointObject.contains("col")) {
+                    if (errorMessage != nullptr) {
+                        *errorMessage = QString("editablePoints 第 %1 项缺少 row 或 col。").arg(i + 1);
+                    }
+                    return false;
+                }
+
+                loadedEditablePoints.append(
+                    QPoint(
+                        pointObject.value("col").toInt(-1),
+                        pointObject.value("row").toInt(-1)
+                        )
+                    );
+            }
+            else if (pointValue.isArray()) {
+                QJsonArray pointArray = pointValue.toArray();
+
+                if (pointArray.size() != 2) {
+                    if (errorMessage != nullptr) {
+                        *errorMessage = QString("editablePoints 第 %1 项数组长度必须是 2。").arg(i + 1);
+                    }
+                    return false;
+                }
+
+                loadedEditablePoints.append(
+                    QPoint(
+                        pointArray.at(0).toInt(-1),
+                        pointArray.at(1).toInt(-1)
+                        )
+                    );
+            }
+            else {
+                if (errorMessage != nullptr) {
+                    *errorMessage = QString("editablePoints 第 %1 项格式不合法。").arg(i + 1);
+                }
+                return false;
+            }
+        }
+
+        if (!validateEditablePoints(loadedMapData, loadedEditablePoints, &validateError)) {
+            if (errorMessage != nullptr) {
+                *errorMessage = "玩家编辑候选点不合法：" + validateError;
+            }
+            return false;
+        }
+    }
+
     if (name != nullptr) {
         *name = loadedName;
     }
@@ -1484,6 +1996,10 @@ bool LevelEditorDialog::loadLevelJsonFile(const QString &filePath,
 
     if (mapData != nullptr) {
         *mapData = loadedMapData;
+    }
+
+    if (editablePoints != nullptr) {
+        *editablePoints = loadedEditablePoints;
     }
 
     return true;
@@ -1500,6 +2016,7 @@ void LevelEditorDialog::loadMapDataToTable(const QStringList &mapData)
 
     widthSpinBox->setValue(columnCount);
     heightSpinBox->setValue(rowCount);
+    editablePointKeys.clear();
 
     QSignalBlocker blocker(mapTable);
     mapTable->setUpdatesEnabled(false);
@@ -1536,7 +2053,115 @@ void LevelEditorDialog::loadMapDataToTable(const QStringList &mapData)
     mapTable->setCurrentCell(0, 0);
     autoFitMapZoom();
     updateMapPreview();
+    updateEditablePointInfo();
     adjustEditorSizeToMap();
+}
+
+bool LevelEditorDialog::isBottomDragArea(const QPoint &position) const
+{
+    return position.y() >= height() - 36;
+}
+
+void LevelEditorDialog::startWindowDrag(const QPoint &globalPosition)
+{
+    isDraggingWindow = true;
+    dragWindowOffset = globalPosition - frameGeometry().topLeft();
+}
+
+void LevelEditorDialog::updateWindowDrag(const QPoint &globalPosition)
+{
+    if (!isDraggingWindow) {
+        return;
+    }
+
+    move(globalPosition - dragWindowOffset);
+    moveDialogInsideScreen();
+}
+
+void LevelEditorDialog::stopWindowDrag()
+{
+    isDraggingWindow = false;
+}
+
+void LevelEditorDialog::moveDialogInsideScreen()
+{
+    QRect availableGeometry;
+
+    if (QScreen *screen = QGuiApplication::screenAt(frameGeometry().center())) {
+        availableGeometry = screen->availableGeometry();
+    } else if (QScreen *screen = QGuiApplication::primaryScreen()) {
+        availableGeometry = screen->availableGeometry();
+    }
+
+    if (!availableGeometry.isValid()) {
+        return;
+    }
+
+    QRect frame = frameGeometry();
+
+    if (frame.height() > availableGeometry.height() - 20) {
+        resize(width(), qMax(560, availableGeometry.height() - 40));
+        frame = frameGeometry();
+    }
+
+    int minX = availableGeometry.left();
+    int maxX = availableGeometry.right() - frame.width() + 1;
+    int minY = availableGeometry.top();
+    int maxY = availableGeometry.bottom() - frame.height() + 1;
+
+    if (maxX < minX) {
+        maxX = minX;
+    }
+
+    if (maxY < minY) {
+        maxY = minY;
+    }
+
+    int newX = qBound(minX, frame.x(), maxX);
+    int newY = qBound(minY, frame.y(), maxY);
+
+    if (newX != frame.x() || newY != frame.y()) {
+        move(newX, newY);
+    }
+}
+
+void LevelEditorDialog::mousePressEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::LeftButton && isBottomDragArea(event->position().toPoint())) {
+        startWindowDrag(event->globalPosition().toPoint());
+        event->accept();
+        return;
+    }
+
+    QDialog::mousePressEvent(event);
+}
+
+void LevelEditorDialog::mouseMoveEvent(QMouseEvent *event)
+{
+    if (isDraggingWindow) {
+        updateWindowDrag(event->globalPosition().toPoint());
+        event->accept();
+        return;
+    }
+
+    QDialog::mouseMoveEvent(event);
+}
+
+void LevelEditorDialog::mouseReleaseEvent(QMouseEvent *event)
+{
+    if (isDraggingWindow) {
+        stopWindowDrag();
+        event->accept();
+        return;
+    }
+
+    QDialog::mouseReleaseEvent(event);
+}
+
+void LevelEditorDialog::showEvent(QShowEvent *event)
+{
+    QDialog::showEvent(event);
+    moveDialogInsideScreen();
 }
 
 void LevelEditorDialog::showStageTip(const QString &actionName)
