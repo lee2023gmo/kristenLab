@@ -50,10 +50,7 @@ LevelEditorDialog::LevelEditorDialog(QWidget *parent)
     , mapPreviewEdit(nullptr)
     , generateButton(nullptr)
     , borderButton(nullptr)
-<<<<<<< HEAD
     , clearButton(nullptr)
-=======
->>>>>>> 9b45a65 (Need to check)
     , importButton(nullptr)
     , validateButton(nullptr)
     , saveButton(nullptr)
@@ -127,11 +124,6 @@ void LevelEditorDialog::setupUi()
         );
 
     QLabel *hintLabel = new QLabel(
-<<<<<<< HEAD
-        "阶段 29：加入工具高亮、拖动连续绘制、右键擦除、清空地图和地图字符串预览。",
-=======
-        "阶段 28：可以导入已有 JSON 关卡继续编辑，修改后默认另存到 custom_levels。",
->>>>>>> 9b45a65 (Need to check)
         this
         );
     hintLabel->setAlignment(Qt::AlignCenter);
@@ -212,11 +204,8 @@ void LevelEditorDialog::setupUi()
     mapPlaceholderLabel = new QLabel(
         "地图编辑区域\n\n"
         "请输入宽度和高度，然后点击“生成地图”。\n"
-<<<<<<< HEAD
+
         "可以点击“生成地图”新建，也可以点击“导入 JSON”打开已有关卡。\n左键拖动连续绘制，右键拖动擦除为空地，底部会实时显示地图字符串。",
-=======
-        "可以点击“生成地图”新建，也可以点击“导入 JSON”打开已有关卡。\n左键点击格子绘制，双击左键擦除为空地。",
->>>>>>> 9b45a65 (Need to check)
         mapFrame
         );
     mapPlaceholderLabel->setAlignment(Qt::AlignCenter);
@@ -263,10 +252,7 @@ void LevelEditorDialog::setupUi()
 
     generateButton = new QPushButton("生成地图", buttonFrame);
     borderButton = new QPushButton("自动加边框墙", buttonFrame);
-<<<<<<< HEAD
     clearButton = new QPushButton("清空为空地", buttonFrame);
-=======
->>>>>>> 9b45a65 (Need to check)
     importButton = new QPushButton("导入 JSON", buttonFrame);
     validateButton = new QPushButton("校验地图", buttonFrame);
     saveButton = new QPushButton("保存关卡", buttonFrame);
@@ -274,10 +260,7 @@ void LevelEditorDialog::setupUi()
 
     generateButton->setMinimumHeight(36);
     borderButton->setMinimumHeight(36);
-<<<<<<< HEAD
     clearButton->setMinimumHeight(36);
-=======
->>>>>>> 9b45a65 (Need to check)
     importButton->setMinimumHeight(36);
     validateButton->setMinimumHeight(36);
     saveButton->setMinimumHeight(36);
@@ -285,10 +268,7 @@ void LevelEditorDialog::setupUi()
 
     buttonLayout->addWidget(generateButton);
     buttonLayout->addWidget(borderButton);
-<<<<<<< HEAD
     buttonLayout->addWidget(clearButton);
-=======
->>>>>>> 9b45a65 (Need to check)
     buttonLayout->addWidget(importButton);
     buttonLayout->addWidget(validateButton);
     buttonLayout->addWidget(saveButton);
@@ -366,12 +346,9 @@ void LevelEditorDialog::setupConnections()
     connect(borderButton, &QPushButton::clicked,
             this, &LevelEditorDialog::addBorderWalls);
 
-<<<<<<< HEAD
     connect(clearButton, &QPushButton::clicked,
             this, &LevelEditorDialog::clearMapToEmpty);
 
-=======
->>>>>>> 9b45a65 (Need to check)
     connect(importButton, &QPushButton::clicked,
             this, &LevelEditorDialog::importLevelFromJson);
 
@@ -1115,7 +1092,6 @@ void LevelEditorDialog::saveCurrentLevel()
     }
 }
 
-
 void LevelEditorDialog::importLevelFromJson()
 {
     QString filePath = QFileDialog::getOpenFileName(
@@ -1161,55 +1137,6 @@ void LevelEditorDialog::importLevelFromJson()
         );
 }
 
-<<<<<<< HEAD
-=======
-
-void LevelEditorDialog::importLevelFromJson()
-{
-    QString filePath = QFileDialog::getOpenFileName(
-        this,
-        "导入关卡 JSON",
-        projectRootPath(),
-        "JSON 文件 (*.json);;所有文件 (*.*)"
-        );
-
-    if (filePath.isEmpty()) {
-        return;
-    }
-
-    QString name;
-    int targetReverseCount = 0;
-    QStringList mapData;
-    QString errorMessage;
-
-    if (!loadLevelJsonFile(filePath, &name, &targetReverseCount, &mapData, &errorMessage)) {
-        QMessageBox::warning(
-            this,
-            "导入失败",
-            QString("无法导入该 JSON 文件。\n\n文件：\n%1\n\n错误原因：\n%2")
-                .arg(filePath)
-                .arg(errorMessage)
-            );
-        return;
-    }
-
-    nameEdit->setText(name);
-    targetReverseSpinBox->setValue(targetReverseCount);
-    loadMapDataToTable(mapData);
-
-    // 导入后默认另存到 custom_levels，避免误覆盖内置关卡。
-    saveFolderComboBox->setCurrentIndex(0);
-
-    QMessageBox::information(
-        this,
-        "导入成功",
-        QString("已成功导入关卡：%1\n\n来源文件：\n%2\n\n你可以继续编辑，修改后建议保存到 custom_levels。")
-            .arg(name)
-            .arg(filePath)
-        );
-}
-
->>>>>>> 9b45a65 (Need to check)
 bool LevelEditorDialog::loadLevelJsonFile(const QString &filePath,
                                           QString *name,
                                           int *targetReverseCount,
@@ -1345,10 +1272,8 @@ void LevelEditorDialog::loadMapDataToTable(const QStringList &mapData)
 
     mapPlaceholderLabel->setVisible(false);
     mapTable->setVisible(true);
-<<<<<<< HEAD
     mapPreviewEdit->setVisible(true);
-=======
->>>>>>> 9b45a65 (Need to check)
+
 
     for (int col = 0; col < columnCount; ++col) {
         mapTable->setColumnWidth(col, 42);
@@ -1359,11 +1284,8 @@ void LevelEditorDialog::loadMapDataToTable(const QStringList &mapData)
     }
 
     mapTable->setCurrentCell(0, 0);
-<<<<<<< HEAD
     updateMapPreview();
     adjustEditorSizeToMap();
-=======
->>>>>>> 9b45a65 (Need to check)
 }
 
 void LevelEditorDialog::showStageTip(const QString &actionName)
@@ -1399,9 +1321,5 @@ void LevelEditorDialog::showStageTip(const QString &actionName)
                           .arg(tileToolTip(currentTile))
                           .arg(actionName);
 
-<<<<<<< HEAD
-    QMessageBox::information(this, "阶段 29 提示", message);
-=======
     QMessageBox::information(this, "阶段 28 提示", message);
->>>>>>> 9b45a65 (Need to check)
 }

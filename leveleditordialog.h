@@ -49,10 +49,7 @@ private:
 
     QPushButton *generateButton;
     QPushButton *borderButton;
-<<<<<<< HEAD
     QPushButton *clearButton;
-=======
->>>>>>> 9b45a65 (Need to check)
     QPushButton *importButton;
     QPushButton *validateButton;
     QPushButton *saveButton;

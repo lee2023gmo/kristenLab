@@ -1,0 +1,20 @@
+<RCC>
+    <qresource prefix="/images">
+        <file>resources/images/ball.png</file>
+        <file>resources/images/wall.png</file>
+        <file>resources/images/end.png</file>
+        <file>resources/images/death.png</file>
+        <file>resources/images/bounce.png</file>
+        <file>resources/images/slow.png</file>
+        <file>resources/images/conveyor.png</file>
+        <file>resources/images/data_fragment.png</file>
+        <file>resources/images/empty.png</file>
+        <file>resources/images/candidate_edit.png</file>
+        <file>resources/images/character_gravedown_workleft.gif</file>
+        <file>resources/images/character_gravedown_workright.gif</file>
+        <file>resources/images/character_graveup_workleft.gif</file>
+        <file>resources/images/character_graveup_workright.gif</file>
+        <file>resources/images/character_in_theair_and_gravedown.gif</file>
+        <file>resources/images/character_in_theair_and_graveup.gif</file>
+    </qresource>
+</RCC>

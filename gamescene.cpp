@@ -22,6 +22,8 @@
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QRegularExpression>
+#include <QPainter>
+#include <QMovie>
 
 
 
@@ -41,6 +43,8 @@ GameScene::GameScene(QObject *parent)
     , gameEnded(false)
     , elapsedMs(0)
     , statusText(nullptr)
+    , ballMovie(nullptr)
+    , currentBallMoviePath()
     , isEditMode(false)
     , selectedEditTile(TileDefs::Bounce)
 {
@@ -54,7 +58,6 @@ GameScene::GameScene(QObject *parent)
 
     qDebug() << "Stage 14 started: LevelManager enabled.";
 }
-
 void GameScene::loadLevel(int levelIndex)
 {
     if (levelManager.levelCount() == 0) {
@@ -122,8 +125,17 @@ void GameScene::drawMap()
 {
     clear();
 
+    // 停止并清理旧的 GIF 动画
+    if (ballMovie != nullptr) {
+        ballMovie->stop();
+        delete ballMovie;
+        ballMovie = nullptr;
+    }
+
     // 阶段 12 新增：清空数据碎片图形记录
     dataFragmentItems.clear();
+
+
 
     ball.item = nullptr;
     statusText = nullptr;
@@ -139,14 +151,15 @@ void GameScene::drawMap()
 
     drawGridBackground(rows, cols);
 
-    QPen wallPen(QColor("#596275"));
-    QBrush wallBrush(QColor("#3b4252"));
+    // 加载美术资源（静态缓存，只加载一次）
+    static QPixmap emptyPixmap(":/images/resources/images/empty.png");
+    static QPixmap wallPixmap(":/images/resources/images/wall.png");
+    static QPixmap endPixmap(":/images/resources/images/end.png");
+    static QPixmap deathPixmap(":/images/resources/images/death.png");
+    static QPixmap bouncePixmap(":/images/resources/images/bounce.png");
+    static QPixmap slowPixmap(":/images/resources/images/slow.png");
+    static QPixmap conveyorPixmap(":/images/resources/images/conveyor.png");
 
-    QPen endPen(QColor("#2ecc71"));
-    QBrush endBrush(QColor("#2ecc71"));
-
-    QPen deathPen(QColor("#ff4d4d"));
-    QBrush deathBrush(QColor("#b83232"));
 
     for (int row = 0; row < rows; ++row) {
         for (int col = 0; col < cols; ++col) {
@@ -155,133 +168,128 @@ void GameScene::drawMap()
             const int x = col * TILE_SIZE;
             const int y = row * TILE_SIZE;
 
-            if (TileDefs::isWall(tile)) {
-                addRect(x, y, TILE_SIZE, TILE_SIZE, wallPen, wallBrush);
+            if (TileDefs::isEmpty(tile)) {
+                if (!emptyPixmap.isNull()) {
+                    QGraphicsPixmapItem *p = addPixmap(emptyPixmap.scaled(
+                        TILE_SIZE, TILE_SIZE,
+                        Qt::IgnoreAspectRatio,
+                        Qt::SmoothTransformation));
+                    p->setPos(x, y);
+                    p->setZValue(0);
+                } else {
+                    addRect(x, y, TILE_SIZE, TILE_SIZE,
+                            QPen(QColor("#27304a")), QBrush(QColor("#10131f")));
+                }
+            }
+            else if (TileDefs::isWall(tile)) {
+                if (!wallPixmap.isNull()) {
+                    QGraphicsPixmapItem *p = addPixmap(wallPixmap);
+                    p->setPos(x, y);
+                } else {
+                    addRect(x, y, TILE_SIZE, TILE_SIZE,
+                            QPen(QColor("#596275")), QBrush(QColor("#3b4252")));
+                }
             }
             else if (TileDefs::isStart(tile)) {
                 startGridPos = QPoint(col, row);
+                if (!emptyPixmap.isNull()) {
+                    QGraphicsPixmapItem *p = addPixmap(emptyPixmap.scaled(
+                        TILE_SIZE, TILE_SIZE,
+                        Qt::IgnoreAspectRatio,
+                        Qt::SmoothTransformation));
+                    p->setPos(x, y);
+                    p->setZValue(0);
+                }
             }
             else if (TileDefs::isEnd(tile)) {
                 endGridPos = QPoint(col, row);
-
-                const int inset = 6;
-
-                QRectF endRect(
-                    x + inset,
-                    y + inset,
-                    TILE_SIZE - 2 * inset,
-                    TILE_SIZE - 2 * inset
-                    );
-
-                addRect(endRect, endPen, endBrush);
-
-                QFont endFont("Arial", 8, QFont::Bold);
-
-                QGraphicsSimpleTextItem *text = addSimpleText("END", endFont);
-                text->setBrush(Qt::white);
-
-                QRectF textRect = text->boundingRect();
-
-                text->setPos(
-                    endRect.center().x() - textRect.width() / 2,
-                    endRect.center().y() - textRect.height() / 2 + 1
-                    );
+                if (!endPixmap.isNull()) {
+                    QGraphicsPixmapItem *p = addPixmap(endPixmap.scaled(
+                        TILE_SIZE, TILE_SIZE,
+                        Qt::IgnoreAspectRatio,
+                        Qt::SmoothTransformation));
+                    p->setPos(x, y);
+                } else {
+                    const int inset = 6;
+                    QRectF endRect(x + inset, y + inset, TILE_SIZE - 2 * inset, TILE_SIZE - 2 * inset);
+                    addRect(endRect, QPen(QColor("#2ecc71")), QBrush(QColor("#2ecc71")));
+                    QFont endFont("Arial", 8, QFont::Bold);
+                    QGraphicsSimpleTextItem *text = addSimpleText("END", endFont);
+                    text->setBrush(Qt::white);
+                    QRectF textRect = text->boundingRect();
+                    text->setPos(endRect.center().x() - textRect.width() / 2,
+                                 endRect.center().y() - textRect.height() / 2 + 1);
+                }
             }
             else if (TileDefs::isDeath(tile)) {
-                addRect(
-                    x + 4,
-                    y + 4,
-                    TILE_SIZE - 8,
-                    TILE_SIZE - 8,
-                    deathPen,
-                    deathBrush
-                    );
+                if (!deathPixmap.isNull()) {
+                    QGraphicsPixmapItem *p = addPixmap(deathPixmap.scaled(
+                        TILE_SIZE, TILE_SIZE,
+                        Qt::IgnoreAspectRatio,
+                        Qt::SmoothTransformation));
+                    p->setPos(x, y);
+                } else {
+                    addRect(x + 4, y + 4, TILE_SIZE - 8, TILE_SIZE - 8,
+                            QPen(QColor("#ff4d4d")), QBrush(QColor("#b83232")));
+                }
             }
             else if (TileDefs::isBounce(tile)) {
-                QRectF rect(
-                    x + 6,
-                    y + 6,
-                    TILE_SIZE - 12,
-                    TILE_SIZE - 12
-                    );
-
-                addRect(
-                    rect,
-                    QPen(QColor("#f1c40f")),
-                    QBrush(QColor("#f39c12"))
-                    );
-
-                addCenteredTextInRect("5", rect, Qt::white);
+                if (!bouncePixmap.isNull()) {
+                    QGraphicsPixmapItem *p = addPixmap(bouncePixmap);
+                    p->setPos(x, y);
+                } else {
+                    QRectF rect(x + 6, y + 6, TILE_SIZE - 12, TILE_SIZE - 12);
+                    addRect(rect, QPen(QColor("#f1c40f")), QBrush(QColor("#f39c12")));
+                    addCenteredTextInRect("5", rect, Qt::white);
+                }
             }
             else if (TileDefs::isSlow(tile)) {
-                QRectF rect(
-                    x + 6,
-                    y + 6,
-                    TILE_SIZE - 12,
-                    TILE_SIZE - 12
-                    );
-
-                addRect(
-                    rect,
-                    QPen(QColor("#74b9ff")),
-                    QBrush(QColor("#0984e3"))
-                    );
-
-                addCenteredTextInRect("6", rect, Qt::white);
+                if (!slowPixmap.isNull()) {
+                    QGraphicsPixmapItem *p = addPixmap(slowPixmap);
+                    p->setPos(x, y);
+                } else {
+                    QRectF rect(x + 6, y + 6, TILE_SIZE - 12, TILE_SIZE - 12);
+                    addRect(rect, QPen(QColor("#74b9ff")), QBrush(QColor("#0984e3")));
+                    addCenteredTextInRect("6", rect, Qt::white);
+                }
             }
             else if (TileDefs::isConveyor(tile)) {
-                QRectF rect(
-                    x + 6,
-                    y + 6,
-                    TILE_SIZE - 12,
-                    TILE_SIZE - 12
-                    );
-
-                addRect(
-                    rect,
-                    QPen(QColor("#55efc4")),
-                    QBrush(QColor("#00b894"))
-                    );
-
-                addCenteredTextInRect("7", rect, Qt::white);
+                if (!conveyorPixmap.isNull()) {
+                    QGraphicsPixmapItem *p = addPixmap(conveyorPixmap);
+                    p->setPos(x, y);
+                } else {
+                    QRectF rect(x + 6, y + 6, TILE_SIZE - 12, TILE_SIZE - 12);
+                    addRect(rect, QPen(QColor("#55efc4")), QBrush(QColor("#00b894")));
+                    addCenteredTextInRect("7", rect, Qt::white);
+                }
             }
             else if (TileDefs::isData(tile)) {
-                QRectF rect(
-                    x + 8,
-                    y + 8,
-                    TILE_SIZE - 16,
-                    TILE_SIZE - 16
-                    );
+                static QPixmap dataPixmap(":/images/resources/images/data_fragment.png");
 
-                QGraphicsEllipseItem *fragmentItem = addEllipse(
-                    rect,
-                    QPen(QColor("#ffffff")),
-                    QBrush(QColor("#00f5d4"))
-                    );
-
-                fragmentItem->setZValue(5);
-
-                QGraphicsSimpleTextItem *dataText = addSimpleText("8");
-                dataText->setBrush(Qt::black);
-                dataText->setZValue(6);
-
-                // 关键修改：
-                // 把文字设置为圆点的子项。
-                // 之后删除 fragmentItem 时，文字也会一起被删除。
-                dataText->setParentItem(fragmentItem);
-
-                QRectF textRect = dataText->boundingRect();
-
-                dataText->setPos(
-                    rect.center().x() - textRect.width() / 2,
-                    rect.center().y() - textRect.height() / 2
-                    );
-
-                QString key = gridKey(QPoint(col, row));
-
-                // 关键修改：
-                // 这里保存圆点本体，而不是只保存文字。
-                dataFragmentItems.insert(key, fragmentItem);
+                if (!dataPixmap.isNull()) {
+                    QGraphicsPixmapItem *fragmentItem = addPixmap(dataPixmap.scaled(
+                        TILE_SIZE, TILE_SIZE,
+                        Qt::IgnoreAspectRatio,
+                        Qt::SmoothTransformation));
+                    fragmentItem->setPos(x, y);
+                    fragmentItem->setZValue(5);
+                    QString key = gridKey(QPoint(col, row));
+                    dataFragmentItems.insert(key, fragmentItem);
+                } else {
+                    QRectF rect(x + 8, y + 8, TILE_SIZE - 16, TILE_SIZE - 16);
+                    QGraphicsEllipseItem *fragmentItem = addEllipse(
+                        rect, QPen(QColor("#ffffff")), QBrush(QColor("#00f5d4")));
+                    fragmentItem->setZValue(5);
+                    QGraphicsSimpleTextItem *dataText = addSimpleText("8");
+                    dataText->setBrush(Qt::black);
+                    dataText->setZValue(6);
+                    dataText->setParentItem(fragmentItem);
+                    QRectF textRect = dataText->boundingRect();
+                    dataText->setPos(rect.center().x() - textRect.width() / 2,
+                                     rect.center().y() - textRect.height() / 2);
+                    QString key = gridKey(QPoint(col, row));
+                    dataFragmentItems.insert(key, fragmentItem);
+                }
             }
         }
     }
@@ -292,7 +300,6 @@ void GameScene::drawMap()
     drawCandidateEditPoints();
 
     createStatusText();
-
 
     qDebug() << "Stage 12 map loaded.";
     qDebug() << "Start grid position:" << startGridPos;
@@ -344,22 +351,48 @@ QPointF GameScene::gridCenterToScenePos(const QPoint &gridPos) const
 void GameScene::createBallAtStart()
 {
     ball.position = gridCenterToScenePos(startGridPos);
+    const int targetSize = ball.radius * 3;
+    // 设置方形碰撞体尺寸，与当前显示图片匹配（42x42 → 半尺寸 21）
+    ball.collisionHalfSize = ball.radius * 3 / 2;
 
-    QPen ballPen(QColor("#80f7ff"));
-    ballPen.setWidth(2);
+    // 清理旧的动画（保险起见）
+    if (ballMovie != nullptr) {
+        ballMovie->stop();
+        delete ballMovie;
+        ballMovie = nullptr;
+    }
+    currentBallMoviePath.clear();
 
-    QBrush ballBrush(QColor("#8a5cff"));
+    // 先创建一个初始占位图（静态 fallback）
+    QPixmap pixmapToUse;
+    static QPixmap ballPixmap(":/images/resources/images/ball.png");
+    pixmapToUse = ballPixmap;
 
-    ball.item = addEllipse(
-        ball.position.x() - ball.radius,
-        ball.position.y() - ball.radius,
-        ball.radius * 2,
-        ball.radius * 2,
-        ballPen,
-        ballBrush
-        );
+    if (pixmapToUse.isNull()) {
+        // Fallback: draw a purple circle manually
+        int d = ball.radius * 2;
+        pixmapToUse = QPixmap(d, d);
+        pixmapToUse.fill(Qt::transparent);
+        QPainter painter(&pixmapToUse);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setPen(QPen(QColor("#80f7ff"), 2));
+        painter.setBrush(QBrush(QColor("#8a5cff")));
+        painter.drawEllipse(0, 0, d, d);
+        painter.end();
+    } else if (pixmapToUse.width() != targetSize || pixmapToUse.height() != targetSize) {
+        pixmapToUse = pixmapToUse.scaled(
+            targetSize, targetSize,
+            Qt::KeepAspectRatio,
+            Qt::SmoothTransformation);
+    }
 
+    ball.item = addPixmap(pixmapToUse);
+    ball.item->setOffset(-pixmapToUse.width() / 2.0, -pixmapToUse.height() / 2.0);
+    ball.item->setPos(ball.position);
     ball.item->setZValue(10);
+
+    // 根据当前重力与速度加载对应的动态 GIF
+    updateBallMovie();
 }
 
 void GameScene::createStatusText()
@@ -492,6 +525,7 @@ void GameScene::updateGame()
     checkCurrentTile();
 
     if (!gameEnded) {
+        updateBallMovie();
         updateStatusText();
     }
 }
@@ -710,6 +744,7 @@ void GameScene::setGravityDirection(GravityDirection newDirection)
     }
 
     updateStatusText();
+    updateBallMovie();
 
     qDebug() << "Control accepted. Gravity:" << gravityDirectionToString()
              << "Velocity:" << velocity
@@ -866,58 +901,39 @@ bool GameScene::isWallAt(const QPointF &scenePos) const
 
 bool GameScene::canBallMoveTo(const QPointF &nextPosition) const
 {
-    int r = collisionRadius();
+    // 使用方形碰撞体（AABB）与地图墙格做相交检测
+    QRectF rect = ball.collisionRectAt(nextPosition);
 
-    QPointF leftPoint(
-        nextPosition.x() - r,
-        nextPosition.y()
-        );
+    double left = rect.left();
+    double right = rect.right();
+    double top = rect.top();
+    double bottom = rect.bottom();
 
-    QPointF rightPoint(
-        nextPosition.x() + r,
-        nextPosition.y()
-        );
+    int startCol = static_cast<int>(left) / TILE_SIZE;
+    int endCol = static_cast<int>(right) / TILE_SIZE;
+    int startRow = static_cast<int>(top) / TILE_SIZE;
+    int endRow = static_cast<int>(bottom) / TILE_SIZE;
 
-    QPointF topPoint(
-        nextPosition.x(),
-        nextPosition.y() - r
-        );
+    for (int row = startRow; row <= endRow; ++row) {
+        for (int col = startCol; col <= endCol; ++col) {
+            if (row < 0 || row >= mapData.size() || col < 0 || col >= mapData[row].size()) {
+                return false;   // 地图外视为墙
+            }
+            if (TileDefs::isWall(mapData[row][col])) {
+                double wallLeft = col * TILE_SIZE;
+                double wallRight = wallLeft + TILE_SIZE;
+                double wallTop = row * TILE_SIZE;
+                double wallBottom = wallTop + TILE_SIZE;
 
-    QPointF bottomPoint(
-        nextPosition.x(),
-        nextPosition.y() + r
-        );
-
-    if (isWallAt(leftPoint)) {
-        return false;
-    }
-
-    if (isWallAt(rightPoint)) {
-        return false;
-    }
-
-    if (isWallAt(topPoint)) {
-        return false;
-    }
-
-    if (isWallAt(bottomPoint)) {
-        return false;
+                if (left < wallRight && right > wallLeft &&
+                    top < wallBottom && bottom > wallTop) {
+                    return false;
+                }
+            }
+        }
     }
 
     return true;
-}
-
-int GameScene::collisionRadius() const
-{
-    // 视觉半径是 BALL_RADIUS，碰撞半径略小一点。
-    // 这样视觉上仍然是圆球，但边缘和内凹角不会因为一点点视觉重叠就卡死。
-    int r = ball.radius - 5;
-
-    if (r < 1) {
-        r = 1;
-    }
-
-    return r;
 }
 
 
@@ -927,15 +943,10 @@ bool GameScene::isTouchingWallAbove() const
         return false;
     }
 
-    // 这是“宽投影支撑检测”：只要碰撞圆的水平投影还有一部分贴着上方墙，
-    // 就认为它还在沿上方支撑面滚动。
-    //
-    // 注意：这个函数可能会把平台侧边也算成支撑。
-    // 所以后面还会用 hasDirectSupportAbove() 判断球心正上方是否真的有支撑。
-    const double supportRadius = collisionRadius();
-    const double probeY = ball.position.y() - supportRadius - BALL_SPEED - 2.0;
-    const double leftX = ball.position.x() - supportRadius + 1.0;
-    const double rightX = ball.position.x() + supportRadius - 1.0;
+    // 使用方形碰撞体的上边缘做支撑检测
+    const double probeY = ball.position.y() - ball.collisionHalfSize - BALL_SPEED - 1.0;
+    const double leftX = ball.position.x() - ball.collisionHalfSize;
+    const double rightX = ball.position.x() + ball.collisionHalfSize;
 
     for (double x = leftX; x <= rightX; x += 4.0) {
         if (isWallAt(QPointF(x, probeY))) {
@@ -952,15 +963,10 @@ bool GameScene::isTouchingWallBelow() const
         return false;
     }
 
-    // 这是“宽投影支撑检测”：只要碰撞圆的水平投影还有一部分压着下方墙，
-    // 就认为它还在沿下方支撑面滚动。
-    //
-    // 注意：这个函数可能会把平台侧边也算成支撑。
-    // 所以后面还会用 hasDirectSupportBelow() 判断球心正下方是否真的有支撑。
-    const double supportRadius = collisionRadius();
-    const double probeY = ball.position.y() + supportRadius + BALL_SPEED + 2.0;
-    const double leftX = ball.position.x() - supportRadius + 1.0;
-    const double rightX = ball.position.x() + supportRadius - 1.0;
+    // 使用方形碰撞体的下边缘做支撑检测
+    const double probeY = ball.position.y() + ball.collisionHalfSize + BALL_SPEED + 1.0;
+    const double leftX = ball.position.x() - ball.collisionHalfSize;
+    const double rightX = ball.position.x() + ball.collisionHalfSize;
 
     for (double x = leftX; x <= rightX; x += 4.0) {
         if (isWallAt(QPointF(x, probeY))) {
@@ -977,8 +983,7 @@ bool GameScene::hasDirectSupportAbove() const
         return false;
     }
 
-    const double r = collisionRadius();
-    const double probeY = ball.position.y() - r - BALL_SPEED - 2.0;
+    const double probeY = ball.position.y() - ball.collisionHalfSize - BALL_SPEED - 2.0;
 
     // 只看球心正上方。
     // 如果宽投影认为有支撑，但正上方没有支撑，
@@ -992,8 +997,7 @@ bool GameScene::hasDirectSupportBelow() const
         return false;
     }
 
-    const double r = collisionRadius();
-    const double probeY = ball.position.y() + r + BALL_SPEED + 2.0;
+    const double probeY = ball.position.y() + ball.collisionHalfSize + BALL_SPEED + 2.0;
 
     // 只看球心正下方。
     return isWallAt(QPointF(ball.position.x(), probeY));
@@ -1006,12 +1010,18 @@ bool GameScene::isTouchingWallLeft() const
         return false;
     }
 
-    const double probeDistance = ball.radius + BALL_SPEED + 2.0;
+    // 使用方形碰撞体的左边缘检测
+    const double probeX = ball.position.x() - ball.collisionHalfSize - BALL_SPEED - 2.0;
+    const double topY = ball.position.y() - ball.collisionHalfSize;
+    const double bottomY = ball.position.y() + ball.collisionHalfSize;
 
-    return isWallAt(QPointF(
-        ball.position.x() - probeDistance,
-        ball.position.y()
-        ));
+    for (double y = topY; y <= bottomY; y += 4.0) {
+        if (isWallAt(QPointF(probeX, y))) {
+            return true;
+        }
+    }
+
+    return isWallAt(QPointF(probeX, bottomY));
 }
 
 bool GameScene::isTouchingWallRight() const
@@ -1020,12 +1030,18 @@ bool GameScene::isTouchingWallRight() const
         return false;
     }
 
-    const double probeDistance = ball.radius + BALL_SPEED + 2.0;
+    // 使用方形碰撞体的右边缘检测
+    const double probeX = ball.position.x() + ball.collisionHalfSize + BALL_SPEED + 2.0;
+    const double topY = ball.position.y() - ball.collisionHalfSize;
+    const double bottomY = ball.position.y() + ball.collisionHalfSize;
 
-    return isWallAt(QPointF(
-        ball.position.x() + probeDistance,
-        ball.position.y()
-        ));
+    for (double y = topY; y <= bottomY; y += 4.0) {
+        if (isWallAt(QPointF(probeX, y))) {
+            return true;
+        }
+    }
+
+    return isWallAt(QPointF(probeX, bottomY));
 }
 
 bool GameScene::hasAnyWallContact() const
@@ -1846,11 +1862,7 @@ void GameScene::drawCandidateEditPoints()
         return;
     }
 
-    QPen candidatePen(QColor("#80f7ff"));
-    candidatePen.setWidth(2);
-    candidatePen.setStyle(Qt::DashLine);
-
-    QBrush candidateBrush(QColor(128, 247, 255, 45));
+    static QPixmap candidatePixmap(":/images/resources/images/candidate_edit.png");
 
     QFont hintFont("Microsoft YaHei", 8, QFont::Bold);
 
@@ -1862,31 +1874,26 @@ void GameScene::drawCandidateEditPoints()
         int x = gridPos.x() * TILE_SIZE;
         int y = gridPos.y() * TILE_SIZE;
 
-        QRectF rect(
-            x + 4,
-            y + 4,
-            TILE_SIZE - 8,
-            TILE_SIZE - 8
-            );
-
-        QGraphicsRectItem *candidateRect = addRect(
-            rect,
-            candidatePen,
-            candidateBrush
-            );
-
-        candidateRect->setZValue(12);
+        if (!candidatePixmap.isNull()) {
+            QGraphicsPixmapItem *p = addPixmap(candidatePixmap);
+            p->setPos(x, y);
+            p->setZValue(12);
+        } else {
+            QRectF rect(x + 4, y + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+            QPen candidatePen(QColor("#80f7ff"));
+            candidatePen.setWidth(2);
+            candidatePen.setStyle(Qt::DashLine);
+            QBrush candidateBrush(QColor(128, 247, 255, 45));
+            QGraphicsRectItem *candidateRect = addRect(rect, candidatePen, candidateBrush);
+            candidateRect->setZValue(12);
+        }
 
         QGraphicsSimpleTextItem *hintText = addSimpleText("可改", hintFont);
         hintText->setBrush(QColor("#80f7ff"));
         hintText->setZValue(13);
-
         QRectF textRect = hintText->boundingRect();
-
-        hintText->setPos(
-            rect.center().x() - textRect.width() / 2,
-            rect.center().y() - textRect.height() / 2
-            );
+        hintText->setPos(x + TILE_SIZE / 2.0 - textRect.width() / 2.0,
+                         y + TILE_SIZE / 2.0 - textRect.height() / 2.0);
     }
 }
 
@@ -1952,6 +1959,17 @@ void GameScene::collectDataFragmentAtCurrentPosition()
         QGraphicsItem *item = dataFragmentItems.take(key);
         removeItem(item);
         delete item;
+    }
+
+    // 碎片被收集后，用 empty.png 填充该格子背景
+    QPixmap emptyBgPixmap(":/images/resources/images/empty.png");
+    if (!emptyBgPixmap.isNull()) {
+        QGraphicsPixmapItem *bgItem = addPixmap(emptyBgPixmap.scaled(
+            TILE_SIZE, TILE_SIZE,
+            Qt::IgnoreAspectRatio,
+            Qt::SmoothTransformation));
+        bgItem->setPos(gridPos.x() * TILE_SIZE, gridPos.y() * TILE_SIZE);
+        bgItem->setZValue(0);
     }
 
     updateStatusText();
@@ -2039,4 +2057,88 @@ QString GameScene::starText(int stars) const
     }
 
     return text;
+}
+QString GameScene::resolveBallMoviePath() const
+{
+    const bool inTheAir = !hasAnyWallContact();
+
+    // 空中状态：没有贴到上下墙壁时，使用空中动画
+    if (inTheAir) {
+        if (gravityDirection == GravityDirection::Up) {
+            return ":/images/resources/images/character_in_theair_and_graveup.gif";
+        }
+        // 重力向下或左右时，统一使用向下的空中图
+        return ":/images/resources/images/character_in_theair_and_gravedown.gif";
+    }
+
+    // 贴墙状态：根据重力方向和水平速度方向选择对应的 GIF
+    if (gravityDirection == GravityDirection::Down) {
+        return (velocity.x() < 0)
+            ? ":/images/resources/images/character_gravedown_workleft.gif"
+            : ":/images/resources/images/character_gravedown_workright.gif";
+    }
+    if (gravityDirection == GravityDirection::Up) {
+        return (velocity.x() < 0)
+            ? ":/images/resources/images/character_graveup_workleft.gif"
+            : ":/images/resources/images/character_graveup_workright.gif";
+    }
+    // 对于 Left/Right 重力，用户暂时没有提供对应图片，回退到默认
+    return ":/images/resources/images/character_gravedown_workright.gif";
+}
+
+void GameScene::updateBallMovie()
+{
+    if (ball.item == nullptr) {
+        return;
+    }
+
+    QString desiredPath = resolveBallMoviePath();
+    if (desiredPath == currentBallMoviePath) {
+        return;   // 路径没变，无需重新加载
+    }
+    currentBallMoviePath = desiredPath;
+
+    // 停止并释放旧动画
+    if (ballMovie != nullptr) {
+        ballMovie->stop();
+        delete ballMovie;
+        ballMovie = nullptr;
+    }
+
+    const int targetSize = ball.radius * 3;
+
+    // 创建新动画
+    ballMovie = new QMovie(desiredPath);
+    if (ballMovie->isValid()) {
+        connect(ballMovie, &QMovie::frameChanged, this, [this, targetSize]() {
+            if (ball.item != nullptr && ballMovie != nullptr) {
+                QPixmap frame = ballMovie->currentPixmap().scaled(
+                    targetSize, targetSize,
+                    Qt::KeepAspectRatio,
+                    Qt::SmoothTransformation);
+                ball.item->setPixmap(frame);
+                ball.item->setOffset(-frame.width() / 2.0, -frame.height() / 2.0);
+            }
+        });
+        ballMovie->start();
+
+        // 立即显示第一帧，避免切换时闪烁
+        QPixmap firstFrame = ballMovie->currentPixmap().scaled(
+            targetSize, targetSize,
+            Qt::KeepAspectRatio,
+            Qt::SmoothTransformation);
+        ball.item->setPixmap(firstFrame);
+        ball.item->setOffset(-firstFrame.width() / 2.0, -firstFrame.height() / 2.0);
+    } else {
+        // 动画加载失败，回退到静态占位图
+        static QPixmap fallbackPixmap(":/images/resources/images/ball.png");
+        QPixmap pixmapToUse = fallbackPixmap;
+        if (!pixmapToUse.isNull()) {
+            pixmapToUse = pixmapToUse.scaled(
+                targetSize, targetSize,
+                Qt::KeepAspectRatio,
+                Qt::SmoothTransformation);
+            ball.item->setPixmap(pixmapToUse);
+        }
+    }
 }

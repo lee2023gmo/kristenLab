@@ -22,6 +22,7 @@ class QKeyEvent;
 class QGraphicsSimpleTextItem;
 class QGraphicsItem;
 class QGraphicsSceneMouseEvent;
+class QMovie;
 
 enum class GravityDirection {
     Up,
@@ -84,6 +85,7 @@ private:
     QPoint endGridPos;
 
     Ball ball;
+    QMovie *ballMovie;
 
     QTimer *timer;
     GravityDirection gravityDirection;
@@ -103,6 +105,10 @@ private:
 
     QGraphicsSimpleTextItem *statusText;
     QMap<QString, QGraphicsItem *> dataFragmentItems;
+
+    QString currentBallMoviePath;
+    void updateBallMovie();
+    QString resolveBallMoviePath() const;
 
     void loadLevel(int levelIndex);
 
@@ -126,7 +132,6 @@ private:
     QChar tileAtScenePos(const QPointF &scenePos) const;
     bool isWallAt(const QPointF &scenePos) const;
     bool canBallMoveTo(const QPointF &nextPosition) const;
-    int collisionRadius() const;
 
     // 修改：贴墙后才允许改变重力方向；撞墙后不反弹
     bool isTouchingWallAbove() const;

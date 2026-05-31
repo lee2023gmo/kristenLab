@@ -36,6 +36,8 @@ set(PROJECT_SOURCES
 
     constants.h
     tiledefs.h
+
+    resources.qrc
 )
 
 if(QT_VERSION_MAJOR GREATER_EQUAL 6)
