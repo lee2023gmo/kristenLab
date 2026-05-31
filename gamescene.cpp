@@ -558,22 +558,46 @@ void GameScene::moveBallOneStep()
 
     // 先尝试 x 方向移动。
     //
-    // 普通沿墙滚动时，如果横向被平台侧边挡住，会尝试脱困。
-    // 蹦床弹出的球属于空中弹射运动：
-    // 一旦碰到任何墙面，就应该直接停下，不能再沿角落脱困或吸附。
+    // 合并美化后，角色使用更接近“方形区域”的碰撞体。
+    // 如果仍然用严格 AABB 检测，角色贴着地面 / 天花板横向移动时，
+    // 碰撞体的下边 / 上边会把“支撑墙本身”也当成阻挡，
+    // 于是会出现：明明右侧是空地，但按右键走不动。
+    //
+    // 所以横向移动时使用 canBallMoveToForVelocity：
+    // - 贴着下方墙横向走：允许继续接触下方支撑墙
+    // - 贴着上方墙横向走：允许继续接触上方支撑墙
+    // - 左右墙仍然正常阻挡，避免穿墙
     if (velocity.x() != 0) {
+        QPointF horizontalVelocity(velocity.x(), 0);
         QPointF tryXPosition(
             ball.position.x() + velocity.x(),
             ball.position.y()
             );
 
-        if (canBallMoveTo(tryXPosition)) {
+        if (canBallMoveToForVelocity(tryXPosition, horizontalVelocity)) {
             newPosition.setX(tryXPosition.x());
         } else {
             if (shouldStopOnWall) {
-                velocity = QPointF(0, 0);
-                ball.setPosition(newPosition);
-                return;
+                // 斜向蹦床 / 空中弹射撞到左右墙时，不能把 y 方向也清零。
+                //
+                // 例如截图中的情况：角色从下方蹦床被弹到右墙，
+                // x 方向被右墙挡住后，仍应该按当前重力方向向上坠落，
+                // 而不是整个人卡在墙边停止。
+                if (velocity.y() != 0
+                    && (gravityDirection == GravityDirection::Up
+                        || gravityDirection == GravityDirection::Down)) {
+                    velocity = velocityForGravityDirection(gravityDirection);
+                    isTrampolineLaunchMove = true;
+
+                    qDebug() << "Trampoline launch hit side wall; continue falling by gravity."
+                             << "Gravity:" << gravityDirectionToString()
+                             << "Velocity:" << velocity;
+                } else {
+                    velocity = QPointF(0, 0);
+                    isTrampolineLaunchMove = false;
+                    ball.setPosition(newPosition);
+                    return;
+                }
             }
 
             bool escapedFromLedge = false;
@@ -595,17 +619,22 @@ void GameScene::moveBallOneStep()
     }
 
     // 再尝试 y 方向移动。
+    // 竖直移动不能忽略上/下墙，否则会穿进墙体。
     if (velocity.y() != 0) {
+        QPointF verticalVelocity(0, velocity.y());
         QPointF tryYPosition(
             newPosition.x(),
             newPosition.y() + velocity.y()
             );
 
-        if (canBallMoveTo(tryYPosition)) {
+        if (canBallMoveToForVelocity(tryYPosition, verticalVelocity)) {
             newPosition.setY(tryYPosition.y());
         } else {
             if (shouldStopOnWall) {
+                // 竖直方向撞到墙，说明已经撞到当前坠落方向上的墙面，
+                // 这里才真正停下。
                 velocity = QPointF(0, 0);
+                isTrampolineLaunchMove = false;
                 ball.setPosition(newPosition);
                 return;
             }
@@ -757,7 +786,10 @@ void GameScene::setGravityDirection(GravityDirection newDirection)
     }
 
     // 如果新方向下一步会直接撞墙，也不执行。
-    if (!canBallMoveTo(ball.position + nextVelocity)) {
+    //
+    // 这里不能用严格 canBallMoveTo：
+    // 当角色贴着地面 / 天花板准备横向走时，支撑墙本身允许继续接触。
+    if (!canBallMoveToForVelocity(ball.position + nextVelocity, nextVelocity)) {
         qDebug() << "Gravity change denied: next movement is blocked by wall.";
         updateStatusText();
         return;
@@ -931,41 +963,116 @@ bool GameScene::isWallAt(const QPointF &scenePos) const
 
 bool GameScene::canBallMoveTo(const QPointF &nextPosition) const
 {
-    // 使用方形碰撞体（AABB）与地图墙格做相交检测
-    QRectF rect = ball.collisionRectAt(nextPosition);
+    return canBallMoveToWithSupportAllowance(nextPosition, false, false, false, false);
+}
 
-    double left = rect.left();
-    double right = rect.right();
-    double top = rect.top();
-    double bottom = rect.bottom();
+bool GameScene::canBallMoveToForVelocity(const QPointF &nextPosition,
+                                         const QPointF &movement) const
+{
+    const bool horizontalMove = (movement.x() != 0 && movement.y() == 0);
+    const bool verticalMove = (movement.y() != 0 && movement.x() == 0);
 
-    int startCol = static_cast<int>(left) / TILE_SIZE;
-    int endCol = static_cast<int>(right) / TILE_SIZE;
-    int startRow = static_cast<int>(top) / TILE_SIZE;
-    int endRow = static_cast<int>(bottom) / TILE_SIZE;
+    // 横向贴地 / 贴天花板移动时，允许继续接触当前支撑面。
+    // 否则方形碰撞体会把“脚下地面”或“头顶天花板”误判为横向阻挡。
+    const bool ignoreAbove =
+        horizontalMove
+        && gravityDirection == GravityDirection::Up
+        && isTouchingWallAbove();
 
-    for (int row = startRow; row <= endRow; ++row) {
-        for (int col = startCol; col <= endCol; ++col) {
-            if (row < 0 || row >= mapData.size() || col < 0 || col >= mapData[row].size()) {
-                return false;   // 地图外视为墙
-            }
-            if (TileDefs::isWall(mapData[row][col])) {
-                double wallLeft = col * TILE_SIZE;
-                double wallRight = wallLeft + TILE_SIZE;
-                double wallTop = row * TILE_SIZE;
-                double wallBottom = wallTop + TILE_SIZE;
+    const bool ignoreBelow =
+        horizontalMove
+        && gravityDirection == GravityDirection::Down
+        && isTouchingWallBelow();
 
-                if (left < wallRight && right > wallLeft &&
-                    top < wallBottom && bottom > wallTop) {
-                    return false;
-                }
-            }
+    // 竖直坠落时，如果角色刚撞到左/右墙，允许继续沿重力方向坠落。
+    // 这解决了斜向蹦床把角色弹到侧墙后，方形碰撞体因为贴着侧墙而无法向上/向下继续移动的问题。
+    //
+    // 注意：只在“纯竖直运动”时忽略左右侧墙；
+    // 真正的横向移动仍然严格检测左右墙，所以不会横向穿墙。
+    const bool ignoreLeft =
+        verticalMove
+        && (gravityDirection == GravityDirection::Up || gravityDirection == GravityDirection::Down)
+        && isTouchingWallLeft();
+
+    const bool ignoreRight =
+        verticalMove
+        && (gravityDirection == GravityDirection::Up || gravityDirection == GravityDirection::Down)
+        && isTouchingWallRight();
+
+    return canBallMoveToWithSupportAllowance(nextPosition,
+                                             ignoreLeft,
+                                             ignoreRight,
+                                             ignoreAbove,
+                                             ignoreBelow);
+}
+
+bool GameScene::canBallMoveToWithSupportAllowance(const QPointF &nextPosition,
+                                                  bool ignoreLeft,
+                                                  bool ignoreRight,
+                                                  bool ignoreAbove,
+                                                  bool ignoreBelow) const
+{
+    const double r = collisionRadius();
+    const double inset = 1.0;
+
+    const double left = nextPosition.x() - r + inset;
+    const double right = nextPosition.x() + r - inset;
+    const double top = nextPosition.y() - r + inset;
+    const double bottom = nextPosition.y() + r - inset;
+    const double centerX = nextPosition.x();
+    const double centerY = nextPosition.y();
+
+    auto blocked = [this](double x, double y) {
+        return isWallAt(QPointF(x, y));
+    };
+
+    // 左右两侧通常严格检测。
+    // 只有在“竖直坠落且已经贴着侧墙”时，允许忽略对应侧墙，
+    // 让角色能沿当前重力方向离开卡点。
+    if (!ignoreLeft && blocked(left, centerY)) {
+        return false;
+    }
+
+    if (!ignoreRight && blocked(right, centerY)) {
+        return false;
+    }
+
+    // 上边不是当前支撑面时，检测上边和两个上角。
+    if (!ignoreAbove) {
+        if (blocked(left, top)
+            || blocked(centerX, top)
+            || blocked(right, top)) {
+            return false;
+        }
+    }
+
+    // 下边不是当前支撑面时，检测下边和两个下角。
+    if (!ignoreBelow) {
+        if (blocked(left, bottom)
+            || blocked(centerX, bottom)
+            || blocked(right, bottom)) {
+            return false;
         }
     }
 
     return true;
 }
 
+int GameScene::collisionRadius() const
+{
+    // 仍然保留“方形碰撞区域”的思路，但给边缘留少量安全皮肤。
+    // 这可以避免角色贴地/贴天花板时，被支撑墙本身卡住。
+    //
+    // 视觉半径是 12，碰撞半边长使用 10。
+    // 比旧圆形碰撞更稳定，也比完整 12x12 方形少一些墙角卡死。
+    int r = ball.collisionHalfSize - 2;
+
+    if (r < 1) {
+        r = 1;
+    }
+
+    return r;
+}
 
 bool GameScene::isTouchingWallAbove() const
 {
@@ -974,9 +1081,10 @@ bool GameScene::isTouchingWallAbove() const
     }
 
     // 使用方形碰撞体的上边缘做支撑检测
-    const double probeY = ball.position.y() - ball.collisionHalfSize - BALL_SPEED - 1.0;
-    const double leftX = ball.position.x() - ball.collisionHalfSize;
-    const double rightX = ball.position.x() + ball.collisionHalfSize;
+    const double supportRadius = collisionRadius();
+    const double probeY = ball.position.y() - supportRadius - BALL_SPEED - 2.0;
+    const double leftX = ball.position.x() - supportRadius + 1.0;
+    const double rightX = ball.position.x() + supportRadius - 1.0;
 
     for (double x = leftX; x <= rightX; x += 4.0) {
         if (isWallAt(QPointF(x, probeY))) {
@@ -994,9 +1102,10 @@ bool GameScene::isTouchingWallBelow() const
     }
 
     // 使用方形碰撞体的下边缘做支撑检测
-    const double probeY = ball.position.y() + ball.collisionHalfSize + BALL_SPEED + 1.0;
-    const double leftX = ball.position.x() - ball.collisionHalfSize;
-    const double rightX = ball.position.x() + ball.collisionHalfSize;
+    const double supportRadius = collisionRadius();
+    const double probeY = ball.position.y() + supportRadius + BALL_SPEED + 2.0;
+    const double leftX = ball.position.x() - supportRadius + 1.0;
+    const double rightX = ball.position.x() + supportRadius - 1.0;
 
     for (double x = leftX; x <= rightX; x += 4.0) {
         if (isWallAt(QPointF(x, probeY))) {
@@ -1013,7 +1122,7 @@ bool GameScene::hasDirectSupportAbove() const
         return false;
     }
 
-    const double probeY = ball.position.y() - ball.collisionHalfSize - BALL_SPEED - 2.0;
+    const double probeY = ball.position.y() - collisionRadius() - BALL_SPEED - 2.0;
 
     // 只看球心正上方。
     // 如果宽投影认为有支撑，但正上方没有支撑，
@@ -1027,7 +1136,7 @@ bool GameScene::hasDirectSupportBelow() const
         return false;
     }
 
-    const double probeY = ball.position.y() + ball.collisionHalfSize + BALL_SPEED + 2.0;
+    const double probeY = ball.position.y() + collisionRadius() + BALL_SPEED + 2.0;
 
     // 只看球心正下方。
     return isWallAt(QPointF(ball.position.x(), probeY));
@@ -1041,9 +1150,10 @@ bool GameScene::isTouchingWallLeft() const
     }
 
     // 使用方形碰撞体的左边缘检测
-    const double probeX = ball.position.x() - ball.collisionHalfSize - BALL_SPEED - 2.0;
-    const double topY = ball.position.y() - ball.collisionHalfSize;
-    const double bottomY = ball.position.y() + ball.collisionHalfSize;
+    const double r = collisionRadius();
+    const double probeX = ball.position.x() - r - BALL_SPEED - 2.0;
+    const double topY = ball.position.y() - r + 1.0;
+    const double bottomY = ball.position.y() + r - 1.0;
 
     for (double y = topY; y <= bottomY; y += 4.0) {
         if (isWallAt(QPointF(probeX, y))) {
@@ -1061,9 +1171,10 @@ bool GameScene::isTouchingWallRight() const
     }
 
     // 使用方形碰撞体的右边缘检测
-    const double probeX = ball.position.x() + ball.collisionHalfSize + BALL_SPEED + 2.0;
-    const double topY = ball.position.y() - ball.collisionHalfSize;
-    const double bottomY = ball.position.y() + ball.collisionHalfSize;
+    const double r = collisionRadius();
+    const double probeX = ball.position.x() + r + BALL_SPEED + 2.0;
+    const double topY = ball.position.y() - r + 1.0;
+    const double bottomY = ball.position.y() + r - 1.0;
 
     for (double y = topY; y <= bottomY; y += 4.0) {
         if (isWallAt(QPointF(probeX, y))) {
@@ -1137,7 +1248,7 @@ bool GameScene::isGravityChangeAllowed(GravityDirection newDirection) const
             return false;
         }
 
-        return canBallMoveTo(ball.position + testVelocity);
+        return canBallMoveToForVelocity(ball.position + testVelocity, testVelocity);
     }
 
     if (touchingAbove) {
@@ -1154,7 +1265,7 @@ bool GameScene::isGravityChangeAllowed(GravityDirection newDirection) const
             return false;
         }
 
-        return canBallMoveTo(ball.position + testVelocity);
+        return canBallMoveToForVelocity(ball.position + testVelocity, testVelocity);
     }
 
     return false;

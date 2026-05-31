@@ -139,6 +139,14 @@ private:
     QChar tileAtScenePos(const QPointF &scenePos) const;
     bool isWallAt(const QPointF &scenePos) const;
     bool canBallMoveTo(const QPointF &nextPosition) const;
+    bool canBallMoveToForVelocity(const QPointF &nextPosition,
+                                  const QPointF &movement) const;
+    bool canBallMoveToWithSupportAllowance(const QPointF &nextPosition,
+                                           bool ignoreLeft,
+                                           bool ignoreRight,
+                                           bool ignoreAbove,
+                                           bool ignoreBelow) const;
+    int collisionRadius() const;
 
     // 修改：贴墙后才允许改变重力方向；撞墙后不反弹
     bool isTouchingWallAbove() const;
