@@ -517,10 +517,13 @@ void GameScene::moveBallOneStep()
 {
     QPointF newPosition = ball.position;
 
+    const bool isDiagonalAirMove = (velocity.x() != 0 && velocity.y() != 0);
+
     // 先尝试 x 方向移动。
     //
-    // 如果横向被平台侧边挡住，不直接卡死；
-    // 尝试沿原方向探出一小段，找到能按当前重力坠落的位置。
+    // 普通沿墙滚动时，如果横向被平台侧边挡住，会尝试脱困。
+    // 但蹦床 45° 斜向弹出的球属于空中斜向运动：
+    // 一旦碰到任何墙面，就应该直接停下，不能再沿角落脱困或吸附。
     if (velocity.x() != 0) {
         QPointF tryXPosition(
             ball.position.x() + velocity.x(),
@@ -530,6 +533,12 @@ void GameScene::moveBallOneStep()
         if (canBallMoveTo(tryXPosition)) {
             newPosition.setX(tryXPosition.x());
         } else {
+            if (isDiagonalAirMove) {
+                velocity = QPointF(0, 0);
+                ball.setPosition(newPosition);
+                return;
+            }
+
             bool escapedFromLedge = false;
 
             if (gravityDirection == GravityDirection::Down
@@ -550,12 +559,7 @@ void GameScene::moveBallOneStep()
 
     // 再尝试 y 方向移动。
     //
-    // 这是真正修正你截图里卡死的位置：
-    // 球已经想向上/向下坠落，但 y 方向被内凹角挡住。
-    // 旧逻辑直接 velocity.y = 0，所以卡死。
-    //
-    // 新逻辑会判断：球心正上/正下是否还有真正支撑。
-    // 如果没有真正支撑，就说明只是平台侧边卡住，允许向左/右小幅脱困后继续坠落。
+    // 蹦床 45° 斜向弹出的球如果碰到上方墙/下方墙，也直接停下。
     if (velocity.y() != 0) {
         QPointF tryYPosition(
             newPosition.x(),
@@ -565,6 +569,12 @@ void GameScene::moveBallOneStep()
         if (canBallMoveTo(tryYPosition)) {
             newPosition.setY(tryYPosition.y());
         } else {
+            if (isDiagonalAirMove) {
+                velocity = QPointF(0, 0);
+                ball.setPosition(newPosition);
+                return;
+            }
+
             bool escapedFromCorner = false;
 
             if (gravityDirection == GravityDirection::Up) {
@@ -1186,10 +1196,16 @@ void GameScene::applyGravityAfterLeavingWall()
         return;
     }
 
+    // 蹦床 45° 斜向弹出后，速度同时具有 x/y 分量。
+    // 这种属于空中斜向运动，不应该被“离开支撑后恢复竖直坠落”的逻辑改回纯竖直。
+    // 空中仍然不能改方向，碰墙仍然会在 moveBallOneStep() 里停下。
+    if (velocity.x() != 0 && velocity.y() != 0) {
+        return;
+    }
+
     // 宽投影函数负责“还沿着平台滚动”的体验；
     // 直接支撑函数负责判断“球心正上/正下是否真的有支撑”。
     //
-    // 关键点：
     // 如果宽投影说有支撑，但直接支撑没有，
     // 多半是内凹角的平台侧边误判。此时不能继续卡着，要尝试按当前重力脱困坠落。
     if (gravityDirection == GravityDirection::Up) {
@@ -1245,7 +1261,6 @@ void GameScene::applyGravityAfterLeavingWall()
         velocity = velocityForGravityDirection(GravityDirection::Down);
     }
 }
-
 
 void GameScene::resetVelocityByGravity()
 {
@@ -1448,7 +1463,7 @@ void GameScene::applyTrampolineEffect(QChar currentTile)
         return;
     }
 
-    // 同一个蹦床格子只触发一次，避免球还在格子中时每帧来回反转。
+    // 同一个蹦床格子只触发一次，避免球还在格子中时每帧重复弹跳。
     if (wasOnTrampoline) {
         return;
     }
@@ -1464,18 +1479,24 @@ void GameScene::applyTrampolineEffect(QChar currentTile)
     moveSpeed = BALL_SPEED;
 
     if (velocity.y() > 0) {
-        // 竖直向下落到蹦床：垂直弹向上方。
+        // 竖直向下落到蹦床：
+        // 45° 斜向右上弹出。
+        //
+        // 注意：这里保留 gravityDirection 为 Up，
+        // 用于状态栏显示“重力：↑”，但实际速度是斜向右上。
         gravityDirection = GravityDirection::Up;
-        velocity = QPointF(0, -moveSpeed);
+        velocity = QPointF(moveSpeed, -moveSpeed);
     } else {
-        // 竖直向上撞到蹦床：对称处理，弹向下方。
+        // 竖直向上撞到蹦床时做对称处理：
+        // 45° 斜向右下弹出。
         gravityDirection = GravityDirection::Down;
-        velocity = QPointF(0, moveSpeed);
+        velocity = QPointF(moveSpeed, moveSpeed);
     }
 
-    qDebug() << "Trampoline triggered. Gravity:" << gravityDirectionToString()
+    qDebug() << "Trampoline 45-degree triggered. Gravity:" << gravityDirectionToString()
              << "Velocity:" << velocity;
 }
+
 void GameScene::applyConveyorEffect(QChar currentTile)
 {
     // 传送带：额外向右移动

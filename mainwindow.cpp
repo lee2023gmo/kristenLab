@@ -8,6 +8,7 @@
 #include <QDialog>
 #include <QFrame>
 #include <QGraphicsView>
+#include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
@@ -16,6 +17,8 @@
 #include <QVBoxLayout>
 #include <QWidget>
 #include <QScrollArea>
+#include <QTimer>
+#include <QTransform>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -28,6 +31,8 @@ MainWindow::MainWindow(QWidget *parent)
     , reverseLabel(nullptr)
     , deathLabel(nullptr)
     , stateLabel(nullptr)
+    , viewZoomLabel(nullptr)
+    , gameViewScale(1.0)
 {
     ui->setupUi(this);
 
@@ -59,6 +64,8 @@ void MainWindow::clearGameScene()
     reverseLabel = nullptr;
     deathLabel = nullptr;
     stateLabel = nullptr;
+    viewZoomLabel = nullptr;
+    gameViewScale = 1.0;
 }
 
 void MainWindow::setupMainMenu()
@@ -165,7 +172,7 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     clearGameScene();
 
     setWindowTitle("KristenLab - 游戏中");
-    resize(1000, 700);
+    resize(1280, 820);
 
     QWidget *central = new QWidget(this);
     central->setStyleSheet(
@@ -202,6 +209,7 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     reverseLabel = new QLabel("反转：0", statusFrame);
     deathLabel = new QLabel("死亡：0", statusFrame);
     stateLabel = new QLabel("状态：运行中", statusFrame);
+    viewZoomLabel = new QLabel("视图：100%", statusFrame);
 
     statusLayout->addWidget(levelLabel);
     statusLayout->addStretch();
@@ -214,6 +222,8 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     statusLayout->addWidget(deathLabel);
     statusLayout->addStretch();
     statusLayout->addWidget(stateLabel);
+    statusLayout->addStretch();
+    statusLayout->addWidget(viewZoomLabel);
 
     mainLayout->addWidget(statusFrame);
 
@@ -258,8 +268,10 @@ void MainWindow::setupGameWindow(int startLevelNumber)
 
     gameView = new QGraphicsView(gameScene, central);
     gameView->setRenderHint(QPainter::Antialiasing);
-    gameView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    gameView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+
+    // 大地图关卡需要横轴和纵轴，不能关闭滚动条。
+    gameView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    gameView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
     gameView->setAlignment(Qt::AlignCenter);
 
     gameView->setFocusPolicy(Qt::StrongFocus);
@@ -271,6 +283,14 @@ void MainWindow::setupGameWindow(int startLevelNumber)
         "background-color: #10131f;"
         "border: 2px solid #3a86ff;"
         "border-radius: 8px;"
+        "}"
+        "QScrollBar:horizontal, QScrollBar:vertical {"
+        "background: #10131f;"
+        "border: 1px solid #33415c;"
+        "}"
+        "QScrollBar::handle:horizontal, QScrollBar::handle:vertical {"
+        "background: #4a5568;"
+        "border-radius: 4px;"
         "}"
         );
 
@@ -289,16 +309,18 @@ void MainWindow::setupGameWindow(int startLevelNumber)
         "color: white;"
         "border: 1px solid #4a5568;"
         "border-radius: 6px;"
-        "padding: 8px 20px;"
-        "font-size: 15px;"
+        "padding: 7px 14px;"
+        "font-size: 14px;"
         "}"
         "QPushButton:hover {"
         "background-color: #3a86ff;"
         "}"
         );
 
-    QHBoxLayout *buttonLayout = new QHBoxLayout(buttonFrame);
-    buttonLayout->setContentsMargins(16, 8, 16, 8);
+    QGridLayout *buttonLayout = new QGridLayout(buttonFrame);
+    buttonLayout->setContentsMargins(14, 8, 14, 8);
+    buttonLayout->setHorizontalSpacing(8);
+    buttonLayout->setVerticalSpacing(8);
 
     QPushButton *editButton = new QPushButton("进入编辑模式", buttonFrame);
     QPushButton *bounceButton = new QPushButton("弹射块", buttonFrame);
@@ -308,46 +330,59 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     QPushButton *runButton = new QPushButton("开始运行", buttonFrame);
     QPushButton *saveButton = new QPushButton("保存地图", buttonFrame);
 
+    QPushButton *zoomOutButton = new QPushButton("缩小视图", buttonFrame);
+    QPushButton *zoomInButton = new QPushButton("放大视图", buttonFrame);
+    QPushButton *resetZoomButton = new QPushButton("还原视图", buttonFrame);
+    QPushButton *fitZoomButton = new QPushButton("适应窗口", buttonFrame);
+
     QPushButton *previousButton = new QPushButton("上一关", buttonFrame);
     QPushButton *restartButton = new QPushButton("重开", buttonFrame);
     QPushButton *pauseButton = new QPushButton("暂停", buttonFrame);
     QPushButton *nextButton = new QPushButton("下一关", buttonFrame);
     QPushButton *menuButton = new QPushButton("返回主菜单", buttonFrame);
 
+    QList<QPushButton *> buttons = {
+        editButton,
+        bounceButton,
+        slowButton,
+        conveyorButton,
+        trampolineButton,
+        runButton,
+        saveButton,
+        zoomOutButton,
+        zoomInButton,
+        resetZoomButton,
+        fitZoomButton,
+        previousButton,
+        restartButton,
+        pauseButton,
+        nextButton,
+        menuButton
+    };
 
-    previousButton->setFocusPolicy(Qt::NoFocus);
-    restartButton->setFocusPolicy(Qt::NoFocus);
-    pauseButton->setFocusPolicy(Qt::NoFocus);
-    nextButton->setFocusPolicy(Qt::NoFocus);
-    menuButton->setFocusPolicy(Qt::NoFocus);
-    saveButton->setFocusPolicy(Qt::NoFocus);
-    trampolineButton->setFocusPolicy(Qt::NoFocus);
+    for (QPushButton *button : buttons) {
+        button->setFocusPolicy(Qt::NoFocus);
+        button->setMinimumHeight(34);
+    }
 
-    buttonLayout->addStretch();
+    buttonLayout->addWidget(editButton, 0, 0);
+    buttonLayout->addWidget(bounceButton, 0, 1);
+    buttonLayout->addWidget(slowButton, 0, 2);
+    buttonLayout->addWidget(conveyorButton, 0, 3);
+    buttonLayout->addWidget(trampolineButton, 0, 4);
+    buttonLayout->addWidget(runButton, 0, 5);
+    buttonLayout->addWidget(saveButton, 0, 6);
 
-    buttonLayout->addWidget(editButton);
-    buttonLayout->addWidget(bounceButton);
-    buttonLayout->addWidget(slowButton);
-    buttonLayout->addWidget(conveyorButton);
-    buttonLayout->addWidget(trampolineButton);
-    buttonLayout->addWidget(runButton);
-    buttonLayout->addWidget(editButton);
-    buttonLayout->addWidget(bounceButton);
-    buttonLayout->addWidget(slowButton);
-    buttonLayout->addWidget(conveyorButton);
-    buttonLayout->addWidget(trampolineButton);
-    buttonLayout->addWidget(runButton);
-    buttonLayout->addWidget(saveButton);
+    buttonLayout->addWidget(zoomOutButton, 1, 0);
+    buttonLayout->addWidget(zoomInButton, 1, 1);
+    buttonLayout->addWidget(resetZoomButton, 1, 2);
+    buttonLayout->addWidget(fitZoomButton, 1, 3);
 
-    buttonLayout->addSpacing(20);
-
-    buttonLayout->addWidget(previousButton);
-    buttonLayout->addWidget(restartButton);
-    buttonLayout->addWidget(pauseButton);
-    buttonLayout->addWidget(nextButton);
-    buttonLayout->addWidget(menuButton);
-
-    buttonLayout->addStretch();
+    buttonLayout->addWidget(previousButton, 1, 4);
+    buttonLayout->addWidget(restartButton, 1, 5);
+    buttonLayout->addWidget(pauseButton, 1, 6);
+    buttonLayout->addWidget(nextButton, 1, 7);
+    buttonLayout->addWidget(menuButton, 1, 8);
 
     mainLayout->addWidget(buttonFrame);
 
@@ -355,12 +390,14 @@ void MainWindow::setupGameWindow(int startLevelNumber)
 
     connect(previousButton, &QPushButton::clicked, this, [this]() {
         gameScene->previousLevel();
+        autoFitGameViewZoom();
         gameView->setFocus();
         gameScene->setFocus();
     });
 
     connect(restartButton, &QPushButton::clicked, this, [this]() {
         gameScene->restartLevel();
+        autoFitGameViewZoom();
         gameView->setFocus();
         gameScene->setFocus();
     });
@@ -373,6 +410,7 @@ void MainWindow::setupGameWindow(int startLevelNumber)
 
     connect(nextButton, &QPushButton::clicked, this, [this]() {
         gameScene->nextLevel();
+        autoFitGameViewZoom();
         gameView->setFocus();
         gameScene->setFocus();
     });
@@ -380,6 +418,7 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     connect(menuButton, &QPushButton::clicked, this, [this]() {
         setupMainMenu();
     });
+
     connect(editButton, &QPushButton::clicked, this, [this]() {
         gameScene->enterEditMode();
         gameView->setFocus();
@@ -415,6 +454,7 @@ void MainWindow::setupGameWindow(int startLevelNumber)
         gameView->setFocus();
         gameScene->setFocus();
     });
+
     connect(saveButton, &QPushButton::clicked, this, [this]() {
         if (gameScene != nullptr) {
             gameScene->saveCurrentEditedLevel();
@@ -429,9 +469,105 @@ void MainWindow::setupGameWindow(int startLevelNumber)
         }
     });
 
+    connect(zoomOutButton, &QPushButton::clicked, this, [this]() {
+        zoomGameViewOut();
+        gameView->setFocus();
+        gameScene->setFocus();
+    });
 
+    connect(zoomInButton, &QPushButton::clicked, this, [this]() {
+        zoomGameViewIn();
+        gameView->setFocus();
+        gameScene->setFocus();
+    });
+
+    connect(resetZoomButton, &QPushButton::clicked, this, [this]() {
+        resetGameViewZoom();
+        gameView->setFocus();
+        gameScene->setFocus();
+    });
+
+    connect(fitZoomButton, &QPushButton::clicked, this, [this]() {
+        autoFitGameViewZoom();
+        gameView->setFocus();
+        gameScene->setFocus();
+    });
+
+    QTimer::singleShot(0, this, &MainWindow::autoFitGameViewZoom);
 }
 
+void MainWindow::setGameViewScale(double scale)
+{
+    gameViewScale = qBound(0.05, scale, 4.0);
+    applyGameViewZoom();
+}
+
+void MainWindow::applyGameViewZoom()
+{
+    if (gameView == nullptr) {
+        return;
+    }
+
+    QTransform transform;
+    transform.scale(gameViewScale, gameViewScale);
+    gameView->setTransform(transform);
+
+    if (viewZoomLabel != nullptr) {
+        viewZoomLabel->setText(QString("视图：%1%").arg(qRound(gameViewScale * 100)));
+    }
+}
+
+void MainWindow::zoomGameViewIn()
+{
+    setGameViewScale(gameViewScale * 1.25);
+}
+
+void MainWindow::zoomGameViewOut()
+{
+    setGameViewScale(gameViewScale / 1.25);
+}
+
+void MainWindow::resetGameViewZoom()
+{
+    setGameViewScale(1.0);
+
+    if (gameView != nullptr && gameScene != nullptr) {
+        gameView->centerOn(gameScene->sceneRect().center());
+    }
+}
+
+void MainWindow::autoFitGameViewZoom()
+{
+    if (gameView == nullptr || gameScene == nullptr) {
+        return;
+    }
+
+    QRectF sceneRect = gameScene->sceneRect();
+
+    if (sceneRect.width() <= 0 || sceneRect.height() <= 0) {
+        return;
+    }
+
+    QSize viewportSize = gameView->viewport()->size();
+
+    if (viewportSize.width() <= 0 || viewportSize.height() <= 0) {
+        return;
+    }
+
+    const double availableWidth = qMax(1, viewportSize.width() - 24);
+    const double availableHeight = qMax(1, viewportSize.height() - 24);
+
+    double scaleX = availableWidth / sceneRect.width();
+    double scaleY = availableHeight / sceneRect.height();
+
+    double fitScale = qMin(scaleX, scaleY);
+
+    // 小地图不强行放大；大地图自动缩小到能看全。
+    fitScale = qMin(fitScale, 1.0);
+    setGameViewScale(fitScale);
+
+    gameView->centerOn(sceneRect.center());
+}
 
 void MainWindow::showLevelEditorDialog()
 {

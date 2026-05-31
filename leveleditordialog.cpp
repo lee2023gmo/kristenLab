@@ -45,15 +45,21 @@ LevelEditorDialog::LevelEditorDialog(QWidget *parent)
     , tileComboBox(nullptr)
     , saveFolderComboBox(nullptr)
     , currentToolPreviewLabel(nullptr)
+    , zoomInfoLabel(nullptr)
     , currentTile(TileDefs::Empty)
+    , mapCellSize(42)
     , isPainting(false)
     , isErasing(false)
+    , isBulkUpdating(false)
     , mapPlaceholderLabel(nullptr)
     , mapTable(nullptr)
     , mapPreviewEdit(nullptr)
     , generateButton(nullptr)
     , borderButton(nullptr)
     , clearButton(nullptr)
+    , zoomOutButton(nullptr)
+    , zoomInButton(nullptr)
+    , resetZoomButton(nullptr)
     , importButton(nullptr)
     , validateButton(nullptr)
     , saveButton(nullptr)
@@ -163,17 +169,17 @@ void LevelEditorDialog::setupUi()
     nameEdit->setPlaceholderText("例如：我的设计关卡");
 
     widthSpinBox = new QSpinBox(infoFrame);
-    widthSpinBox->setRange(5, 30);
+    widthSpinBox->setRange(5, 150);
     widthSpinBox->setValue(12);
     widthSpinBox->setSuffix(" 列");
 
     heightSpinBox = new QSpinBox(infoFrame);
-    heightSpinBox->setRange(5, 20);
+    heightSpinBox->setRange(5, 150);
     heightSpinBox->setValue(8);
     heightSpinBox->setSuffix(" 行");
 
     targetReverseSpinBox = new QSpinBox(infoFrame);
-    targetReverseSpinBox->setRange(0, 99);
+    targetReverseSpinBox->setRange(0, 999);
     targetReverseSpinBox->setValue(6);
     targetReverseSpinBox->setSuffix(" 次");
 
@@ -199,12 +205,24 @@ void LevelEditorDialog::setupUi()
     currentToolPreviewLabel->setAlignment(Qt::AlignCenter);
     currentToolPreviewLabel->setMinimumHeight(34);
 
+    zoomInfoLabel = new QLabel(infoFrame);
+    zoomInfoLabel->setAlignment(Qt::AlignCenter);
+    zoomInfoLabel->setMinimumHeight(30);
+    zoomInfoLabel->setStyleSheet(
+        "background-color: #10131f;"
+        "color: #cbd5e1;"
+        "border: 1px solid #4a5568;"
+        "border-radius: 6px;"
+        "padding: 4px;"
+        );
+
     formLayout->addRow("关卡名：", nameEdit);
     formLayout->addRow("宽度：", widthSpinBox);
     formLayout->addRow("高度：", heightSpinBox);
     formLayout->addRow("目标：", targetReverseSpinBox);
     formLayout->addRow("元素：", tileComboBox);
     formLayout->addRow("预览：", currentToolPreviewLabel);
+    formLayout->addRow("缩放：", zoomInfoLabel);
     formLayout->addRow("保存：", saveFolderComboBox);
 
     sideLayout->addLayout(formLayout);
@@ -220,6 +238,9 @@ void LevelEditorDialog::setupUi()
     generateButton = new QPushButton("生成地图", buttonFrame);
     borderButton = new QPushButton("边框墙", buttonFrame);
     clearButton = new QPushButton("清空", buttonFrame);
+    zoomOutButton = new QPushButton("缩小地图", buttonFrame);
+    zoomInButton = new QPushButton("放大地图", buttonFrame);
+    resetZoomButton = new QPushButton("还原缩放", buttonFrame);
     importButton = new QPushButton("导入 JSON", buttonFrame);
     validateButton = new QPushButton("校验地图", buttonFrame);
     saveButton = new QPushButton("保存关卡", buttonFrame);
@@ -229,6 +250,9 @@ void LevelEditorDialog::setupUi()
         generateButton,
         borderButton,
         clearButton,
+        zoomOutButton,
+        zoomInButton,
+        resetZoomButton,
         importButton,
         validateButton,
         saveButton,
@@ -244,9 +268,12 @@ void LevelEditorDialog::setupUi()
     buttonLayout->addWidget(importButton, 0, 1);
     buttonLayout->addWidget(borderButton, 1, 0);
     buttonLayout->addWidget(clearButton, 1, 1);
-    buttonLayout->addWidget(validateButton, 2, 0);
-    buttonLayout->addWidget(saveButton, 2, 1);
-    buttonLayout->addWidget(closeButton, 3, 0, 1, 2);
+    buttonLayout->addWidget(zoomOutButton, 2, 0);
+    buttonLayout->addWidget(zoomInButton, 2, 1);
+    buttonLayout->addWidget(resetZoomButton, 3, 0, 1, 2);
+    buttonLayout->addWidget(validateButton, 4, 0);
+    buttonLayout->addWidget(saveButton, 4, 1);
+    buttonLayout->addWidget(closeButton, 5, 0, 1, 2);
 
     sideLayout->addWidget(buttonFrame);
 
@@ -255,6 +282,8 @@ void LevelEditorDialog::setupUi()
         "左键拖动：绘制当前元素\n"
         "右键拖动：擦除为空地\n"
         "双击格子：擦除为空地\n"
+        "缩小地图：适合 150×150 大图\n横向/纵向滚动条：浏览边角\n"
+        "还原缩放：恢复默认格子大小\n"
         "保存后可回到关卡选择查看",
         infoFrame
         );
@@ -297,6 +326,8 @@ void LevelEditorDialog::setupUi()
     mapTable->setSelectionBehavior(QAbstractItemView::SelectItems);
     mapTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     mapTable->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    mapTable->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    mapTable->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
 
     mapTable->horizontalHeader()->setVisible(false);
     mapTable->verticalHeader()->setVisible(false);
@@ -304,6 +335,8 @@ void LevelEditorDialog::setupUi()
     mapTable->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
     mapTable->horizontalHeader()->setDefaultSectionSize(42);
     mapTable->verticalHeader()->setDefaultSectionSize(42);
+    mapTable->horizontalHeader()->setMinimumSectionSize(4);
+    mapTable->verticalHeader()->setMinimumSectionSize(4);
     mapTable->viewport()->installEventFilter(this);
 
     mapPreviewEdit = new QPlainTextEdit(mapFrame);
@@ -391,6 +424,15 @@ void LevelEditorDialog::setupConnections()
     connect(clearButton, &QPushButton::clicked,
             this, &LevelEditorDialog::clearMapToEmpty);
 
+    connect(zoomOutButton, &QPushButton::clicked,
+            this, &LevelEditorDialog::zoomOutMap);
+
+    connect(zoomInButton, &QPushButton::clicked,
+            this, &LevelEditorDialog::zoomInMap);
+
+    connect(resetZoomButton, &QPushButton::clicked,
+            this, &LevelEditorDialog::resetMapZoom);
+
     connect(importButton, &QPushButton::clicked,
             this, &LevelEditorDialog::importLevelFromJson);
 
@@ -412,6 +454,7 @@ void LevelEditorDialog::setupConnections()
     connect(closeButton, &QPushButton::clicked, this, &LevelEditorDialog::reject);
 
     updateCurrentToolPreview();
+    updateZoomInfo();
 }
 
 void LevelEditorDialog::generateMapTable()
@@ -419,39 +462,40 @@ void LevelEditorDialog::generateMapTable()
     const int columnCount = widthSpinBox->value();
     const int rowCount = heightSpinBox->value();
 
+    QSignalBlocker blocker(mapTable);
+    mapTable->setUpdatesEnabled(false);
+    isBulkUpdating = true;
+
     mapTable->clear();
     mapTable->setRowCount(rowCount);
     mapTable->setColumnCount(columnCount);
 
+    for (int col = 0; col < columnCount; ++col) {
+        mapTable->setColumnWidth(col, mapCellSize);
+    }
+
     for (int row = 0; row < rowCount; ++row) {
-        mapTable->setRowHeight(row, 42);
+        mapTable->setRowHeight(row, mapCellSize);
 
         for (int col = 0; col < columnCount; ++col) {
-            mapTable->setColumnWidth(col, 42);
-
             QTableWidgetItem *item = new QTableWidgetItem();
             item->setTextAlignment(Qt::AlignCenter);
             item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-
             mapTable->setItem(row, col, item);
+
             setCellTile(row, col, TileDefs::Empty);
         }
     }
 
+    isBulkUpdating = false;
+    mapTable->setUpdatesEnabled(true);
+
     mapPlaceholderLabel->setVisible(false);
     mapTable->setVisible(true);
     mapPreviewEdit->setVisible(true);
-    mapPreviewEdit->setVisible(true);
-
-    for (int col = 0; col < columnCount; ++col) {
-        mapTable->setColumnWidth(col, 42);
-    }
-
-    for (int row = 0; row < rowCount; ++row) {
-        mapTable->setRowHeight(row, 42);
-    }
 
     mapTable->setCurrentCell(0, 0);
+    autoFitMapZoom();
     updateMapPreview();
     adjustEditorSizeToMap();
 }
@@ -474,7 +518,9 @@ void LevelEditorDialog::setCellTile(int row, int col, QChar tile)
         tile = TileDefs::Empty;
     }
 
-    if (TileDefs::isStart(tile)) {
+    // 批量生成 / 清空 / 导入时不需要每次都扫描旧起点。
+    // 用户手动画起点时仍然保证只有一个起点。
+    if (!isBulkUpdating && TileDefs::isStart(tile)) {
         clearOldStartTile();
     }
 
@@ -492,7 +538,12 @@ void LevelEditorDialog::setCellTile(int row, int col, QChar tile)
     item->setToolTip(tileToolTip(tile));
 
     updateCellStyle(row, col);
-    updateMapPreview();
+
+    // 大地图慢的主要原因是：每改一个格子就 buildMapDataFromTable() 重建整张地图预览。
+    // 批量操作时只在最后统一刷新一次。
+    if (!isBulkUpdating) {
+        updateMapPreview();
+    }
 }
 
 QChar LevelEditorDialog::cellTile(int row, int col) const
@@ -539,7 +590,16 @@ void LevelEditorDialog::updateCellStyle(int row, int col)
 
     QFont font = item->font();
     font.setBold(!TileDefs::isEmpty(tile));
-    font.setPointSize(TileDefs::isSlow(tile) || TileDefs::isEnd(tile) ? 8 : 11);
+
+    // 地图缩得很小时，字体也要一起缩小，否则 0/1 会挤出格子，看起来像没有缩放成功。
+    int fontSize = qBound(4, mapCellSize / 2, 11);
+
+    if (TileDefs::isSlow(tile) || TileDefs::isEnd(tile)) {
+        fontSize = qBound(4, mapCellSize / 3, 8);
+    }
+
+    item->setTextAlignment(Qt::AlignCenter);
+    font.setPointSize(fontSize);
     item->setFont(font);
 }
 
@@ -724,16 +784,16 @@ bool LevelEditorDialog::validateMapData(const QStringList &mapData, QString *err
         return false;
     }
 
-    if (expectedColumnCount < 5 || expectedColumnCount > 30) {
+    if (expectedColumnCount < 5 || expectedColumnCount > 150) {
         if (errorMessage != nullptr) {
-            *errorMessage = QString("地图宽度必须在 5 到 30 之间，当前是 %1。").arg(expectedColumnCount);
+            *errorMessage = QString("地图宽度必须在 5 到 150 之间，当前是 %1。").arg(expectedColumnCount);
         }
         return false;
     }
 
-    if (mapData.size() < 5 || mapData.size() > 20) {
+    if (mapData.size() < 5 || mapData.size() > 150) {
         if (errorMessage != nullptr) {
-            *errorMessage = QString("地图高度必须在 5 到 20 之间，当前是 %1。").arg(mapData.size());
+            *errorMessage = QString("地图高度必须在 5 到 150 之间，当前是 %1。").arg(mapData.size());
         }
         return false;
     }
@@ -862,6 +922,10 @@ void LevelEditorDialog::addBorderWalls()
         return;
     }
 
+    QSignalBlocker blocker(mapTable);
+    mapTable->setUpdatesEnabled(false);
+    isBulkUpdating = true;
+
     for (int col = 0; col < columnCount; ++col) {
         setCellTile(0, col, TileDefs::Wall);
         setCellTile(rowCount - 1, col, TileDefs::Wall);
@@ -872,6 +936,8 @@ void LevelEditorDialog::addBorderWalls()
         setCellTile(row, columnCount - 1, TileDefs::Wall);
     }
 
+    isBulkUpdating = false;
+    mapTable->setUpdatesEnabled(true);
     updateMapPreview();
 
     QMessageBox::information(
@@ -895,7 +961,9 @@ void LevelEditorDialog::clearMapToEmpty()
     QMessageBox::StandardButton result = QMessageBox::question(
         this,
         "确认清空地图",
-        "确定要把当前地图全部变成空地 0 吗？",
+        QString("确定要把当前地图全部变成空地 0 吗？\\n\\n地图大小：%1 行 × %2 列")
+            .arg(mapTable->rowCount())
+            .arg(mapTable->columnCount()),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No
         );
@@ -904,12 +972,18 @@ void LevelEditorDialog::clearMapToEmpty()
         return;
     }
 
+    QSignalBlocker blocker(mapTable);
+    mapTable->setUpdatesEnabled(false);
+    isBulkUpdating = true;
+
     for (int row = 0; row < mapTable->rowCount(); ++row) {
         for (int col = 0; col < mapTable->columnCount(); ++col) {
             setCellTile(row, col, TileDefs::Empty);
         }
     }
 
+    isBulkUpdating = false;
+    mapTable->setUpdatesEnabled(true);
     updateMapPreview();
 }
 
@@ -936,6 +1010,36 @@ void LevelEditorDialog::updateMapPreview()
         return;
     }
 
+    if (mapTable == nullptr || !mapTable->isVisible()) {
+        mapPreviewEdit->clear();
+        return;
+    }
+
+    const int rowCount = mapTable->rowCount();
+    const int columnCount = mapTable->columnCount();
+    const int cellCount = rowCount * columnCount;
+
+    if (rowCount <= 0 || columnCount <= 0) {
+        mapPreviewEdit->clear();
+        return;
+    }
+
+    // 大地图不再实时显示完整字符串。
+    // 例如 150×150 有 22500 个格子，拖动绘制时每次都拼接完整字符串会明显卡顿。
+    // 保存 JSON 时仍然会完整读取整张地图。
+    if (cellCount > 5000) {
+        mapPreviewEdit->setPlainText(
+            QString("大地图预览已简化，以提升编辑性能。\\n"
+                    "地图大小：%1 行 × %2 列，共 %3 个格子。\\n"
+                    "保存时仍会完整写入 JSON。\\n"
+                    "需要检查边角时，请使用横向 / 纵向滚动条。")
+                .arg(rowCount)
+                .arg(columnCount)
+                .arg(cellCount)
+            );
+        return;
+    }
+
     QStringList mapData = buildMapDataFromTable();
 
     if (mapData.isEmpty()) {
@@ -943,9 +1047,8 @@ void LevelEditorDialog::updateMapPreview()
         return;
     }
 
-    mapPreviewEdit->setPlainText(mapData.join("\n"));
+    mapPreviewEdit->setPlainText(mapData.join("\\n"));
 }
-
 
 void LevelEditorDialog::adjustEditorSizeToMap()
 {
@@ -953,20 +1056,126 @@ void LevelEditorDialog::adjustEditorSizeToMap()
         return;
     }
 
-    const int cellSize = 42;
-    const int tableWidth = mapTable->columnCount() * cellSize + 28;
-    const int tableHeight = mapTable->rowCount() * cellSize + 28;
+    const int tableWidth = mapTable->columnCount() * mapCellSize + 40;
+    const int tableHeight = mapTable->rowCount() * mapCellSize + 40;
 
-    // 只调整地图表格自身的最小尺寸，不再把整个窗口竖向撑到屏幕外。
-    // 左侧工具栏固定宽度，右侧地图区域自适应。
-    mapTable->setMinimumWidth(qMin(tableWidth, 1120));
-    mapTable->setMinimumHeight(qMin(tableHeight, 720));
+    // 不再把 mapTable 的最小尺寸强行设成整张地图大小。
+    // 否则大地图会把表框撑爆，横向滚动条也不好用。
+    // 现在表格视口保持一个合理大小，超出的内容靠横向/纵向滚动条浏览。
+    const int viewportMinWidth = qBound(520, tableWidth, 1080);
+    const int viewportMinHeight = qBound(360, tableHeight, 620);
+
+    mapTable->setMinimumWidth(viewportMinWidth);
+    mapTable->setMinimumHeight(viewportMinHeight);
 
     const int sidePanelWidth = 340;
-    const int targetWindowWidth = qMin(qMax(width(), sidePanelWidth + tableWidth + 90), 1480);
-    const int targetWindowHeight = qMin(qMax(height(), tableHeight + 210), 900);
+    const int targetWindowWidth = qMin(qMax(width(), sidePanelWidth + viewportMinWidth + 90), 1480);
+    const int targetWindowHeight = qMin(qMax(height(), viewportMinHeight + 260), 920);
 
     resize(targetWindowWidth, targetWindowHeight);
+}
+
+void LevelEditorDialog::setMapCellSize(int cellSize)
+{
+    // 原来最小 20px 对 80×80、150×150 这种大地图还是太大。
+    // 现在允许缩到 6px，用来总览大图；需要精细编辑时再放大。
+    mapCellSize = qBound(6, cellSize, 60);
+
+    if (mapTable != nullptr) {
+        QSignalBlocker blocker(mapTable);
+        mapTable->setUpdatesEnabled(false);
+
+        for (int col = 0; col < mapTable->columnCount(); ++col) {
+            mapTable->setColumnWidth(col, mapCellSize);
+        }
+
+        for (int row = 0; row < mapTable->rowCount(); ++row) {
+            mapTable->setRowHeight(row, mapCellSize);
+        }
+
+        // 字体、END/SLOW 等文本也跟随格子大小重新适配。
+        for (int row = 0; row < mapTable->rowCount(); ++row) {
+            for (int col = 0; col < mapTable->columnCount(); ++col) {
+                updateCellStyle(row, col);
+            }
+        }
+
+        mapTable->setUpdatesEnabled(true);
+    }
+
+    updateZoomInfo();
+    adjustEditorSizeToMap();
+}
+
+void LevelEditorDialog::updateZoomInfo()
+{
+    if (zoomInfoLabel == nullptr) {
+        return;
+    }
+
+    int percent = qRound(mapCellSize * 100.0 / 42.0);
+
+    zoomInfoLabel->setText(
+        QString("%1 px / %2%")
+            .arg(mapCellSize)
+            .arg(percent)
+        );
+}
+
+void LevelEditorDialog::zoomInMap()
+{
+    setMapCellSize(mapCellSize + 2);
+}
+
+void LevelEditorDialog::zoomOutMap()
+{
+    setMapCellSize(mapCellSize - 2);
+}
+
+void LevelEditorDialog::resetMapZoom()
+{
+    setMapCellSize(42);
+}
+
+void LevelEditorDialog::autoFitMapZoom()
+{
+    if (mapTable == nullptr) {
+        return;
+    }
+
+    const int rows = mapTable->rowCount();
+    const int cols = mapTable->columnCount();
+
+    // 更激进的大地图自动缩放：
+    // 150×150 需要能总览和滚动浏览，所以自动到 6px。
+    // 用户仍然可以用“放大地图 / 缩小地图 / 还原缩放”手动调整。
+    if (cols >= 140 || rows >= 140) {
+        setMapCellSize(6);
+    }
+    else if (cols >= 120 || rows >= 120) {
+        setMapCellSize(8);
+    }
+    else if (cols >= 80 || rows >= 80) {
+        setMapCellSize(10);
+    }
+    else if (cols >= 60 || rows >= 60) {
+        setMapCellSize(12);
+    }
+    else if (cols >= 45 || rows >= 45) {
+        setMapCellSize(16);
+    }
+    else if (cols >= 35 || rows >= 30) {
+        setMapCellSize(20);
+    }
+    else if (cols >= 28 || rows >= 18) {
+        setMapCellSize(24);
+    }
+    else if (cols >= 22 || rows >= 14) {
+        setMapCellSize(32);
+    }
+    else {
+        setMapCellSize(42);
+    }
 }
 
 void LevelEditorDialog::paintCellAtViewportPosition(const QPoint &position, QChar tile)
@@ -1292,38 +1501,40 @@ void LevelEditorDialog::loadMapDataToTable(const QStringList &mapData)
     widthSpinBox->setValue(columnCount);
     heightSpinBox->setValue(rowCount);
 
+    QSignalBlocker blocker(mapTable);
+    mapTable->setUpdatesEnabled(false);
+    isBulkUpdating = true;
+
     mapTable->clear();
     mapTable->setRowCount(rowCount);
     mapTable->setColumnCount(columnCount);
 
+    for (int col = 0; col < columnCount; ++col) {
+        mapTable->setColumnWidth(col, mapCellSize);
+    }
+
     for (int row = 0; row < rowCount; ++row) {
-        mapTable->setRowHeight(row, 42);
+        mapTable->setRowHeight(row, mapCellSize);
 
         for (int col = 0; col < columnCount; ++col) {
-            mapTable->setColumnWidth(col, 42);
-
             QTableWidgetItem *item = new QTableWidgetItem();
             item->setTextAlignment(Qt::AlignCenter);
             item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-
             mapTable->setItem(row, col, item);
+
             setCellTile(row, col, mapData[row][col]);
         }
     }
+
+    isBulkUpdating = false;
+    mapTable->setUpdatesEnabled(true);
 
     mapPlaceholderLabel->setVisible(false);
     mapTable->setVisible(true);
     mapPreviewEdit->setVisible(true);
 
-    for (int col = 0; col < columnCount; ++col) {
-        mapTable->setColumnWidth(col, 42);
-    }
-
-    for (int row = 0; row < rowCount; ++row) {
-        mapTable->setRowHeight(row, 42);
-    }
-
     mapTable->setCurrentCell(0, 0);
+    autoFitMapZoom();
     updateMapPreview();
     adjustEditorSizeToMap();
 }

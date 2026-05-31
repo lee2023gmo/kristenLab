@@ -38,10 +38,13 @@ private:
     QComboBox *tileComboBox;
     QComboBox *saveFolderComboBox;
     QLabel *currentToolPreviewLabel;
+    QLabel *zoomInfoLabel;
     QChar currentTile;
+    int mapCellSize;
 
     bool isPainting;
     bool isErasing;
+    bool isBulkUpdating;
 
     QLabel *mapPlaceholderLabel;
     QTableWidget *mapTable;
@@ -50,6 +53,9 @@ private:
     QPushButton *generateButton;
     QPushButton *borderButton;
     QPushButton *clearButton;
+    QPushButton *zoomOutButton;
+    QPushButton *zoomInButton;
+    QPushButton *resetZoomButton;
     QPushButton *importButton;
     QPushButton *validateButton;
     QPushButton *saveButton;
@@ -83,6 +89,12 @@ private:
     void updateCurrentToolPreview();
     void updateMapPreview();
     void adjustEditorSizeToMap();
+    void setMapCellSize(int cellSize);
+    void updateZoomInfo();
+    void zoomInMap();
+    void zoomOutMap();
+    void resetMapZoom();
+    void autoFitMapZoom();
     void paintCellAtViewportPosition(const QPoint &position, QChar tile);
 
     // 阶段 27：保存为 JSON 文件
