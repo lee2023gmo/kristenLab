@@ -163,6 +163,12 @@ void GameScene::drawMap()
     static QPixmap bouncePixmap(":/images/resources/images/bounce.png");
     static QPixmap slowPixmap(":/images/resources/images/slow.png");
     static QPixmap conveyorPixmap(":/images/resources/images/conveyor.png");
+    static QPixmap trampolineUpRightPixmap(":/images/resources/images/trampoline_upright.png");
+    static QPixmap trampolineUpLeftPixmap(":/images/resources/images/trampoline_upleft.png");
+    static QPixmap trampolineDownRightPixmap(":/images/resources/images/trampoline_downright.png");
+    static QPixmap trampolineDownLeftPixmap(":/images/resources/images/trampoline_downleft.png");
+    static QPixmap trampolineRightPixmap(":/images/resources/images/trampoline_right.png");
+    static QPixmap trampolineLeftPixmap(":/images/resources/images/trampoline_left.png");
 
 
     for (int row = 0; row < rows; ++row) {
@@ -187,7 +193,10 @@ void GameScene::drawMap()
             }
             else if (TileDefs::isWall(tile)) {
                 if (!wallPixmap.isNull()) {
-                    QGraphicsPixmapItem *p = addPixmap(wallPixmap);
+                    QGraphicsPixmapItem *p = addPixmap(wallPixmap.scaled(
+                        TILE_SIZE, TILE_SIZE,
+                        Qt::IgnoreAspectRatio,
+                        Qt::SmoothTransformation));
                     p->setPos(x, y);
                 } else {
                     addRect(x, y, TILE_SIZE, TILE_SIZE,
@@ -249,7 +258,10 @@ void GameScene::drawMap()
             }
             else if (TileDefs::isSlow(tile)) {
                 if (!slowPixmap.isNull()) {
-                    QGraphicsPixmapItem *p = addPixmap(slowPixmap);
+                    QGraphicsPixmapItem *p = addPixmap(slowPixmap.scaled(
+                        TILE_SIZE, TILE_SIZE,
+                        Qt::IgnoreAspectRatio,
+                        Qt::SmoothTransformation));
                     p->setPos(x, y);
                 } else {
                     QRectF rect(x + 6, y + 6, TILE_SIZE - 12, TILE_SIZE - 12);
@@ -268,20 +280,44 @@ void GameScene::drawMap()
                 }
             }
             else if (TileDefs::isTrampoline(tile)) {
-                QRectF rect(
-                    x + 5,
-                    y + 8,
-                    TILE_SIZE - 10,
-                    TILE_SIZE - 16
-                    );
+                QPixmap pixmapToUse;
 
-                addRect(
-                    rect,
-                    QPen(QColor("#ff79c6")),
-                    QBrush(QColor("#d63384"))
-                    );
+                if (TileDefs::isTrampolineUpRight(tile) && !trampolineUpRightPixmap.isNull()) {
+                    pixmapToUse = trampolineUpRightPixmap;
+                } else if (TileDefs::isTrampolineUpLeft(tile) && !trampolineUpLeftPixmap.isNull()) {
+                    pixmapToUse = trampolineUpLeftPixmap;
+                } else if (TileDefs::isTrampolineDownRight(tile) && !trampolineDownRightPixmap.isNull()) {
+                    pixmapToUse = trampolineDownRightPixmap;
+                } else if (TileDefs::isTrampolineDownLeft(tile) && !trampolineDownLeftPixmap.isNull()) {
+                    pixmapToUse = trampolineDownLeftPixmap;
+                } else if (TileDefs::isTrampolineRight(tile) && !trampolineRightPixmap.isNull()) {
+                    pixmapToUse = trampolineRightPixmap;
+                } else if (TileDefs::isTrampolineLeft(tile) && !trampolineLeftPixmap.isNull()) {
+                    pixmapToUse = trampolineLeftPixmap;
+                }
 
-                addCenteredTextInRect(TileDefs::trampolineArrow(tile), rect, Qt::white);
+                if (!pixmapToUse.isNull()) {
+                    QGraphicsPixmapItem *p = addPixmap(pixmapToUse.scaled(
+                        TILE_SIZE, TILE_SIZE,
+                        Qt::IgnoreAspectRatio,
+                        Qt::SmoothTransformation));
+                    p->setPos(x, y);
+                } else {
+                    QRectF rect(
+                        x + 5,
+                        y + 8,
+                        TILE_SIZE - 10,
+                        TILE_SIZE - 16
+                        );
+
+                    addRect(
+                        rect,
+                        QPen(QColor("#ff79c6")),
+                        QBrush(QColor("#d63384"))
+                        );
+
+                    addCenteredTextInRect(TileDefs::trampolineArrow(tile), rect, Qt::white);
+                }
             }
             else if (TileDefs::isData(tile)) {
                 static QPixmap dataPixmap(":/images/resources/images/data_fragment.png");

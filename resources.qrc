@@ -16,5 +16,11 @@
         <file>resources/images/character_graveup_workright.gif</file>
         <file>resources/images/character_in_theair_and_gravedown.gif</file>
         <file>resources/images/character_in_theair_and_graveup.gif</file>
+        <file>resources/images/trampoline_upright.png</file>
+        <file>resources/images/trampoline_upleft.png</file>
+        <file>resources/images/trampoline_downright.png</file>
+        <file>resources/images/trampoline_downleft.png</file>
+        <file>resources/images/trampoline_right.png</file>
+        <file>resources/images/trampoline_left.png</file>
     </qresource>
 </RCC>
