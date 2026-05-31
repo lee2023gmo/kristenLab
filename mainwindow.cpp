@@ -324,6 +324,7 @@ void MainWindow::setupGameWindow(int startLevelNumber)
 
     QPushButton *editButton = new QPushButton("进入编辑模式", buttonFrame);
     QPushButton *slowButton = new QPushButton("缓冲区", buttonFrame);
+    QPushButton *laserButton = new QPushButton("激光门", buttonFrame);
     QPushButton *trampolineUpRightButton = new QPushButton("蹦床↗", buttonFrame);
     QPushButton *trampolineUpLeftButton = new QPushButton("蹦床↖", buttonFrame);
     QPushButton *trampolineDownRightButton = new QPushButton("蹦床↘", buttonFrame);
@@ -347,6 +348,7 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     QList<QPushButton *> buttons = {
         editButton,
         slowButton,
+        laserButton,
         trampolineUpRightButton,
         trampolineUpLeftButton,
         trampolineDownRightButton,
@@ -373,14 +375,15 @@ void MainWindow::setupGameWindow(int startLevelNumber)
 
     buttonLayout->addWidget(editButton, 0, 0);
     buttonLayout->addWidget(slowButton, 0, 1);
-    buttonLayout->addWidget(trampolineUpRightButton, 0, 2);
-    buttonLayout->addWidget(trampolineUpLeftButton, 0, 3);
-    buttonLayout->addWidget(trampolineDownRightButton, 0, 4);
-    buttonLayout->addWidget(trampolineDownLeftButton, 0, 5);
-    buttonLayout->addWidget(trampolineRightButton, 0, 6);
-    buttonLayout->addWidget(trampolineLeftButton, 0, 7);
-    buttonLayout->addWidget(runButton, 0, 8);
-    buttonLayout->addWidget(saveButton, 0, 9);
+    buttonLayout->addWidget(laserButton, 0, 2);
+    buttonLayout->addWidget(trampolineUpRightButton, 0, 3);
+    buttonLayout->addWidget(trampolineUpLeftButton, 0, 4);
+    buttonLayout->addWidget(trampolineDownRightButton, 0, 5);
+    buttonLayout->addWidget(trampolineDownLeftButton, 0, 6);
+    buttonLayout->addWidget(trampolineRightButton, 0, 7);
+    buttonLayout->addWidget(trampolineLeftButton, 0, 8);
+    buttonLayout->addWidget(runButton, 0, 9);
+    buttonLayout->addWidget(saveButton, 0, 10);
 
     buttonLayout->addWidget(zoomOutButton, 1, 0);
     buttonLayout->addWidget(zoomInButton, 1, 1);
@@ -441,6 +444,12 @@ void MainWindow::setupGameWindow(int startLevelNumber)
         gameScene->setFocus();
     });
 
+
+    connect(laserButton, &QPushButton::clicked, this, [this]() {
+        gameScene->selectLaserBlock();
+        gameView->setFocus();
+        gameScene->setFocus();
+    });
 
     connect(trampolineUpRightButton, &QPushButton::clicked, this, [this]() {
         gameScene->selectTrampolineUpRightBlock();
@@ -827,6 +836,7 @@ void MainWindow::showHelpDialog()
         "橙色 ↑：弹射块\n"
         "蓝色 S：缓冲区\n"
         "黄色 >>：传送带\n"
+        "红色 L：激光门，周期亮灭；亮时会反弹，灭时可通过\n"
         "青色圆点：数据碎片\n\n"
         "目标：引导小球到达终点，并尽量减少反转次数、收集数据碎片。"
         );

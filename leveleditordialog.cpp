@@ -235,6 +235,7 @@ void LevelEditorDialog::setupUi()
     tileComboBox->addItem("终点 END", QString(TileDefs::End));
     tileComboBox->addItem("死亡区 X", QString(TileDefs::Death));
     tileComboBox->addItem("缓冲区 SLOW", QString(TileDefs::Slow));
+    tileComboBox->addItem("激光门 L", QString(TileDefs::Laser));
     tileComboBox->addItem("数据碎片 *", QString(TileDefs::Data));
     tileComboBox->addItem("候选点 E", QString(EditablePointTool));
     tileComboBox->addItem("蹦床 ↗", QString(TileDefs::TrampolineUpRight));
@@ -847,6 +848,10 @@ QString LevelEditorDialog::tileDisplayText(QChar tile) const
         return "→";
     }
 
+    if (TileDefs::isLaser(tile)) {
+        return "L";
+    }
+
     if (TileDefs::isData(tile)) {
         return "*";
     }
@@ -905,6 +910,10 @@ QColor LevelEditorDialog::tileBackgroundColor(QChar tile) const
         return QColor("#b5a800");
     }
 
+    if (TileDefs::isLaser(tile)) {
+        return QColor("#ff1744");
+    }
+
     if (TileDefs::isData(tile)) {
         return QColor("#00f5d4");
     }
@@ -928,6 +937,10 @@ QColor LevelEditorDialog::tileTextColor(QChar tile) const
 
     if (TileDefs::isData(tile)) {
         return QColor("#10131f");
+    }
+
+    if (TileDefs::isLaser(tile)) {
+        return QColor("#ffffff");
     }
 
     return QColor("#ffffff");

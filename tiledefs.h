@@ -18,6 +18,7 @@ static const QChar Bounce = QChar('5');       // 弹射块
 static const QChar Slow = QChar('6');         // 缓冲区
 static const QChar Conveyor = QChar('7');     // 传送带
 static const QChar Data = QChar('8');         // 数据碎片
+static const QChar Laser = QChar('L');        // 激光门：周期性亮灭，亮时阻挡并反弹
 
 // 四方向蹦床。
 // 9 保持兼容旧版本：默认表示 45° 右上。
@@ -80,6 +81,11 @@ inline bool isConveyor(QChar tile)
 inline bool isData(QChar tile)
 {
     return tile == Data;
+}
+
+inline bool isLaser(QChar tile)
+{
+    return tile == Laser;
 }
 
 inline bool isTrampoline(QChar tile)
@@ -175,6 +181,9 @@ inline QString nameOf(QChar tile)
     if (tile == Data) {
         return "数据碎片";
     }
+    if (tile == Laser) {
+        return "激光门";
+    }
     if (tile == TrampolineUpRight) {
         return "蹦床↗";
     }
@@ -207,6 +216,7 @@ inline bool isKnownTile(QChar tile)
            || tile == Slow
            || tile == Conveyor
            || tile == Data
+           || tile == Laser
            || tile == TrampolineUpRight
            || tile == TrampolineUpLeft
            || tile == TrampolineDownRight

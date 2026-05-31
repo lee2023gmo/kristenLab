@@ -138,6 +138,8 @@ void GameScene::drawMap()
 
     // 阶段 12 新增：清空数据碎片图形记录
     dataFragmentItems.clear();
+    laserItems.clear();
+    laserLabelItems.clear();
 
 
 
@@ -279,6 +281,48 @@ void GameScene::drawMap()
                     addCenteredTextInRect("7", rect, Qt::white);
                 }
             }
+            else if (TileDefs::isLaser(tile)) {
+                // 激光门底下仍然画空地，熄灭时看起来就像普通可通行格子。
+                if (!emptyPixmap.isNull()) {
+                    QGraphicsPixmapItem *background = addPixmap(emptyPixmap.scaled(
+                        TILE_SIZE, TILE_SIZE,
+                        Qt::IgnoreAspectRatio,
+                        Qt::SmoothTransformation));
+                    background->setPos(x, y);
+                    background->setZValue(0);
+                } else {
+                    addRect(x, y, TILE_SIZE, TILE_SIZE,
+                            QPen(QColor("#27304a")), QBrush(QColor("#10131f")));
+                }
+
+                QRectF beamRect(
+                    x + 4,
+                    y + TILE_SIZE / 2.0 - 4,
+                    TILE_SIZE - 8,
+                    8
+                    );
+
+                QGraphicsRectItem *laserBeam = addRect(
+                    beamRect,
+                    QPen(QColor("#ff4d6d"), 2),
+                    QBrush(QColor("#ff1744"))
+                    );
+                laserBeam->setZValue(9);
+
+                QFont laserFont("Arial", 8, QFont::Bold);
+                QGraphicsSimpleTextItem *laserText = addSimpleText("L", laserFont);
+                laserText->setBrush(QColor("#ffffff"));
+                laserText->setZValue(10);
+                QRectF textRect = laserText->boundingRect();
+                laserText->setPos(
+                    x + TILE_SIZE / 2.0 - textRect.width() / 2.0,
+                    y + TILE_SIZE / 2.0 - textRect.height() / 2.0
+                    );
+
+                QString key = gridKey(QPoint(col, row));
+                laserItems.insert(key, laserBeam);
+                laserLabelItems.insert(key, laserText);
+            }
             else if (TileDefs::isTrampoline(tile)) {
                 QPixmap pixmapToUse;
 
@@ -356,6 +400,7 @@ void GameScene::drawMap()
     drawCandidateEditPoints();
 
     createStatusText();
+    updateLaserItems();
 
     qDebug() << "Stage 12 map loaded.";
     qDebug() << "Start grid position:" << startGridPos;
@@ -407,6 +452,7 @@ QPointF GameScene::gridCenterToScenePos(const QPoint &gridPos) const
 void GameScene::createBallAtStart()
 {
     ball.position = gridCenterToScenePos(startGridPos);
+    lastNonLaserBallPosition = ball.position;
     const int targetSize = ball.radius * 3;
     // 设置方形碰撞体尺寸，与当前显示图片匹配（42x42 → 半尺寸 21）
     ball.collisionHalfSize = ball.radius * 3 / 2;
@@ -570,6 +616,27 @@ void GameScene::updateGame()
     }
 
     elapsedMs += TIMER_INTERVAL;
+    updateLaserItems();
+
+    // 如果玩家在激光熄灭时进入了激光格子，下一次激光点亮时，
+    // 直接弹回最近一个非激光格子，避免角色卡在激光内部。
+    if (isActiveLaserAt(ball.position)) {
+        QPointF blockedMovement = velocity;
+        if (blockedMovement == QPointF(0, 0)) {
+            blockedMovement = velocityForGravityDirection(gravityDirection);
+        }
+
+        if (lastNonLaserBallPosition != QPointF()
+            && canBallMoveTo(lastNonLaserBallPosition)
+            && !isActiveLaserAt(lastNonLaserBallPosition)) {
+            ball.setPosition(lastNonLaserBallPosition);
+        }
+
+        repelFromLaserCollision(blockedMovement);
+        updateBallMovie();
+        updateStatusText();
+        return;
+    }
 
     moveBallOneStep();
 
@@ -581,6 +648,7 @@ void GameScene::updateGame()
     checkCurrentTile();
 
     if (!gameEnded) {
+        rememberLastNonLaserPosition();
         updateBallMovie();
         updateStatusText();
     }
@@ -613,6 +681,12 @@ void GameScene::moveBallOneStep()
         if (canBallMoveToForVelocity(tryXPosition, horizontalVelocity)) {
             newPosition.setX(tryXPosition.x());
         } else {
+            if (wouldCollideWithActiveLaser(tryXPosition)) {
+                ball.setPosition(newPosition);
+                repelFromLaserCollision(horizontalVelocity);
+                return;
+            }
+
             if (shouldStopOnWall) {
                 // 斜向蹦床 / 空中弹射撞到左右墙时，不能把 y 方向也清零。
                 //
@@ -666,6 +740,12 @@ void GameScene::moveBallOneStep()
         if (canBallMoveToForVelocity(tryYPosition, verticalVelocity)) {
             newPosition.setY(tryYPosition.y());
         } else {
+            if (wouldCollideWithActiveLaser(tryYPosition)) {
+                ball.setPosition(newPosition);
+                repelFromLaserCollision(verticalVelocity);
+                return;
+            }
+
             if (shouldStopOnWall) {
                 // 竖直方向撞到墙，说明已经撞到当前坠落方向上的墙面，
                 // 这里才真正停下。
@@ -997,6 +1077,28 @@ bool GameScene::isWallAt(const QPointF &scenePos) const
     return TileDefs::isWall(tileAtScenePos(scenePos));
 }
 
+bool GameScene::isLaserActive() const
+{
+    const int cycleMs = LASER_ACTIVE_MS + LASER_INACTIVE_MS;
+
+    if (cycleMs <= 0) {
+        return false;
+    }
+
+    int phaseMs = elapsedMs % cycleMs;
+    return phaseMs < LASER_ACTIVE_MS;
+}
+
+bool GameScene::isActiveLaserAt(const QPointF &scenePos) const
+{
+    return isLaserActive() && TileDefs::isLaser(tileAtScenePos(scenePos));
+}
+
+bool GameScene::isBlockingAt(const QPointF &scenePos) const
+{
+    return isWallAt(scenePos) || isActiveLaserAt(scenePos);
+}
+
 bool GameScene::canBallMoveTo(const QPointF &nextPosition) const
 {
     return canBallMoveToWithSupportAllowance(nextPosition, false, false, false, false);
@@ -1059,7 +1161,7 @@ bool GameScene::canBallMoveToWithSupportAllowance(const QPointF &nextPosition,
     const double centerY = nextPosition.y();
 
     auto blocked = [this](double x, double y) {
-        return isWallAt(QPointF(x, y));
+        return isBlockingAt(QPointF(x, y));
     };
 
     // 左右两侧通常严格检测。
@@ -1108,6 +1210,115 @@ int GameScene::collisionRadius() const
     }
 
     return r;
+}
+
+void GameScene::updateLaserItems()
+{
+    const bool active = isLaserActive();
+
+    QColor beamColor = active ? QColor("#ff1744") : QColor("#33415c");
+    QColor penColor = active ? QColor("#ff8fa3") : QColor("#62708a");
+    QColor textColor = active ? QColor("#ffffff") : QColor("#8a96ad");
+    qreal opacity = active ? 1.0 : 0.28;
+
+    for (auto it = laserItems.begin(); it != laserItems.end(); ++it) {
+        QGraphicsRectItem *rectItem = qgraphicsitem_cast<QGraphicsRectItem *>(it.value());
+
+        if (rectItem == nullptr) {
+            continue;
+        }
+
+        QPen pen(penColor, active ? 2 : 1);
+        pen.setStyle(active ? Qt::SolidLine : Qt::DashLine);
+
+        rectItem->setPen(pen);
+        rectItem->setBrush(QBrush(beamColor));
+        rectItem->setOpacity(opacity);
+    }
+
+    for (auto it = laserLabelItems.begin(); it != laserLabelItems.end(); ++it) {
+        QGraphicsSimpleTextItem *textItem = qgraphicsitem_cast<QGraphicsSimpleTextItem *>(it.value());
+
+        if (textItem == nullptr) {
+            continue;
+        }
+
+        textItem->setBrush(textColor);
+        textItem->setOpacity(active ? 1.0 : 0.45);
+    }
+}
+
+bool GameScene::wouldCollideWithActiveLaser(const QPointF &nextPosition) const
+{
+    if (!isLaserActive()) {
+        return false;
+    }
+
+    const double r = collisionRadius();
+    const double inset = 1.0;
+
+    const double left = nextPosition.x() - r + inset;
+    const double right = nextPosition.x() + r - inset;
+    const double top = nextPosition.y() - r + inset;
+    const double bottom = nextPosition.y() + r - inset;
+    const double centerX = nextPosition.x();
+    const double centerY = nextPosition.y();
+
+    return isActiveLaserAt(QPointF(left, centerY))
+           || isActiveLaserAt(QPointF(right, centerY))
+           || isActiveLaserAt(QPointF(centerX, top))
+           || isActiveLaserAt(QPointF(centerX, bottom))
+           || isActiveLaserAt(QPointF(left, top))
+           || isActiveLaserAt(QPointF(right, top))
+           || isActiveLaserAt(QPointF(left, bottom))
+           || isActiveLaserAt(QPointF(right, bottom));
+}
+
+void GameScene::repelFromLaserCollision(const QPointF &blockedMovement)
+{
+    QPointF nextVelocity = velocity;
+
+    if (blockedMovement.x() != 0) {
+        nextVelocity.setX(-blockedMovement.x());
+    }
+
+    if (blockedMovement.y() != 0) {
+        nextVelocity.setY(-blockedMovement.y());
+    }
+
+    if (nextVelocity == QPointF(0, 0)) {
+        nextVelocity = -velocityForGravityDirection(gravityDirection);
+    }
+
+    velocity = nextVelocity;
+    moveSpeed = BALL_SPEED;
+    isTrampolineLaunchMove = false;
+
+    // 只有竖直方向被激光反弹时才切换重力方向。
+    // 水平贴地/贴天花板滚动撞到激光时，只把水平速度反向，避免破坏当前支撑逻辑。
+    if (blockedMovement.y() != 0) {
+        if (velocity.y() < 0) {
+            gravityDirection = GravityDirection::Up;
+        }
+        else if (velocity.y() > 0) {
+            gravityDirection = GravityDirection::Down;
+        }
+    }
+
+    qDebug() << "Laser repelled player. Active:" << isLaserActive()
+             << "Velocity:" << velocity
+             << "Gravity:" << gravityDirectionToString();
+}
+
+void GameScene::rememberLastNonLaserPosition()
+{
+    if (ball.item == nullptr) {
+        return;
+    }
+
+    if (!TileDefs::isLaser(tileAtScenePos(ball.position))) {
+        lastNonLaserBallPosition = ball.position;
+    }
 }
 
 bool GameScene::isTouchingWallAbove() const
@@ -1978,6 +2189,11 @@ void GameScene::selectTrampolineLeftBlock()
     selectEditTile(TileDefs::TrampolineLeft);
 }
 
+void GameScene::selectLaserBlock()
+{
+    selectEditTile(TileDefs::Laser);
+}
+
 void GameScene::selectEditTile(QChar tile)
 {
     if (!isEditableMechanism(tile)) {
@@ -2062,7 +2278,8 @@ bool GameScene::isGridPosInMap(const QPoint &gridPos) const
 bool GameScene::isEditableMechanism(QChar tile) const
 {
     return TileDefs::isSlow(tile)
-           || TileDefs::isTrampoline(tile);
+           || TileDefs::isTrampoline(tile)
+           || TileDefs::isLaser(tile);
 }
 
 QChar GameScene::tileAtGridPos(const QPoint &gridPos) const
@@ -2166,6 +2383,10 @@ QChar GameScene::nextCandidateTile(QChar currentTile) const
     }
 
     if (TileDefs::isTrampolineLeft(currentTile)) {
+        return TileDefs::Laser;
+    }
+
+    if (TileDefs::isLaser(currentTile)) {
         return TileDefs::Empty;
     }
 

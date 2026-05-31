@@ -62,6 +62,7 @@ public:
     void selectTrampolineDownLeftBlock();
     void selectTrampolineRightBlock();
     void selectTrampolineLeftBlock();
+    void selectLaserBlock();
     void saveCurrentEditedLevel();
 
 signals:
@@ -112,6 +113,9 @@ private:
 
     QGraphicsSimpleTextItem *statusText;
     QMap<QString, QGraphicsItem *> dataFragmentItems;
+    QMap<QString, QGraphicsItem *> laserItems;
+    QMap<QString, QGraphicsItem *> laserLabelItems;
+    QPointF lastNonLaserBallPosition;
 
     QString currentBallMoviePath;
     void updateBallMovie();
@@ -138,6 +142,8 @@ private:
 
     QChar tileAtScenePos(const QPointF &scenePos) const;
     bool isWallAt(const QPointF &scenePos) const;
+    bool isActiveLaserAt(const QPointF &scenePos) const;
+    bool isBlockingAt(const QPointF &scenePos) const;
     bool canBallMoveTo(const QPointF &nextPosition) const;
     bool canBallMoveToForVelocity(const QPointF &nextPosition,
                                   const QPointF &movement) const;
@@ -162,6 +168,12 @@ private:
                                 const QPointF &fallVelocity,
                                 QPointF *escapedPosition) const;
     void applyGravityAfterLeavingWall();
+
+    bool isLaserActive() const;
+    void updateLaserItems();
+    bool wouldCollideWithActiveLaser(const QPointF &nextPosition) const;
+    void repelFromLaserCollision(const QPointF &blockedMovement);
+    void rememberLastNonLaserPosition();
 
     void resetVelocityByGravity();
 
