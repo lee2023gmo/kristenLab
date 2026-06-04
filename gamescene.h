@@ -13,7 +13,6 @@
 #include <QSet>
 #include <QVector>
 
-
 #include "ball.h"
 #include "levelmanager.h"
 
@@ -134,7 +133,7 @@ private:
 
     void updateGame();
 
-    // 阶段 18：把移动逻辑从 updateGame 中拆出来
+    // 移动逻辑拆分，便于处理碰撞和机关。
     void moveBallOneStep();
 
     void setGravityDirection(GravityDirection newDirection);
@@ -154,7 +153,7 @@ private:
                                            bool ignoreBelow) const;
     int collisionRadius() const;
 
-    // 修改：贴墙后才允许改变重力方向；撞墙后不反弹
+    // 只有贴到上下支撑面时才允许改变重力。
     bool isTouchingWallAbove() const;
     bool isTouchingWallBelow() const;
     bool hasDirectSupportAbove() const;
@@ -185,7 +184,6 @@ private:
     void applyConveyorEffect(QChar currentTile);
 
     void adjustVelocityToSpeed(int newSpeed);
-
 
     void checkCurrentTile();
     void handleFailure();

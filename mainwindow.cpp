@@ -269,7 +269,7 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     gameView = new QGraphicsView(gameScene, central);
     gameView->setRenderHint(QPainter::Antialiasing);
 
-    // 大地图关卡需要横轴和纵轴，不能关闭滚动条。
+    // 大地图需要保留双向滚动条。
     gameView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
     gameView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
     gameView->setAlignment(Qt::AlignCenter);
@@ -437,13 +437,11 @@ void MainWindow::setupGameWindow(int startLevelNumber)
         gameScene->setFocus();
     });
 
-
     connect(slowButton, &QPushButton::clicked, this, [this]() {
         gameScene->selectSlowBlock();
         gameView->setFocus();
         gameScene->setFocus();
     });
-
 
     connect(laserButton, &QPushButton::clicked, this, [this]() {
         gameScene->selectLaserBlock();
@@ -600,7 +598,7 @@ void MainWindow::autoFitGameViewZoom()
 
     double fitScale = qMin(scaleX, scaleY);
 
-    // 小地图不强行放大；大地图自动缩小到能看全。
+    // 小地图保持原尺寸，大地图自动适配视图。
     fitScale = qMin(fitScale, 1.0);
     setGameViewScale(fitScale);
 
@@ -621,9 +619,7 @@ void MainWindow::showLevelEditorDialog()
 
 void MainWindow::showLevelSelectDialog()
 {
-    // 阶段 22：
-    // 每次打开关卡选择时，都重新扫描 levels 和 custom_levels。
-    // 这样新增 / 删除自定义地图后，界面会自动更新。
+    // 打开关卡选择时重新扫描关卡目录。
     LevelManager previewManager;
     previewManager.loadDefaultLevels();
 

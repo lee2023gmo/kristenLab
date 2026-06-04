@@ -37,7 +37,7 @@ private:
 
     double gameViewScale;
 
-    // 阶段 13：主菜单和游戏界面
+    // 主菜单和游戏界面。
     void setupMainMenu();
     void setupGameWindow(int startLevelNumber = 1);
     void showLevelSelectDialog();

@@ -12,8 +12,7 @@ const int DATA_FRAGMENT_RADIUS = 7;
 
 const int TIMER_INTERVAL = 20;
 
-// 激光门周期：亮 1.2 秒，灭 3.0 秒。
-// 亮的时候等同于临时墙体并把角色弹回；灭的时候完全不阻挡，且开门时间更长。
+// 激光门：亮时阻挡并弹回角色，灭时可通行。
 const int LASER_ACTIVE_MS = 1200;
 const int LASER_INACTIVE_MS = 3000;
 

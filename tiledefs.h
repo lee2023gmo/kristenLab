@@ -6,22 +6,21 @@
 
 namespace TileDefs
 {
-// 基础地图元素
+// 基础元素
 static const QChar Empty = QChar('0');        // 空地
 static const QChar Wall = QChar('1');         // 墙体
 static const QChar Start = QChar('2');        // 起点
 static const QChar End = QChar('3');          // 终点
 static const QChar Death = QChar('4');        // 死亡区
 
-// 机关 / 道具
+// 机关和道具
 static const QChar Bounce = QChar('5');       // 弹射块
 static const QChar Slow = QChar('6');         // 缓冲区
 static const QChar Conveyor = QChar('7');     // 传送带
 static const QChar Data = QChar('8');         // 数据碎片
 static const QChar Laser = QChar('L');        // 激光门：周期性亮灭，亮时阻挡并反弹
 
-// 四方向蹦床。
-// 9 保持兼容旧版本：默认表示 45° 右上。
+// 蹦床；9 兼容旧版，表示右上弹射。
 static const QChar Trampoline = QChar('9');          // 蹦床：右上
 static const QChar TrampolineUpRight = QChar('9');   // 蹦床：↗
 static const QChar TrampolineUpLeft = QChar('u');    // 蹦床：↖
@@ -30,7 +29,7 @@ static const QChar TrampolineDownLeft = QChar('w');  // 蹦床：↙
 static const QChar TrampolineRight = QChar('r');     // 蹦床：→
 static const QChar TrampolineLeft = QChar('l');      // 蹦床：←
 
-// 以后可以继续加
+// 扩展元素可继续追加。
 static const QChar Key = QChar('K');          // 钥匙
 static const QChar Door = QChar('A');         // 门
 static const QChar Portal = QChar('B');       // 传送门

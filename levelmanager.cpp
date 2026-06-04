@@ -89,7 +89,6 @@ QString LevelManager::levelSelectTextAt(int index) const
         .arg(level.name);
 }
 
-
 void LevelManager::addLevelIfValid(const Level &level)
 {
     QString errorMessage;
@@ -102,7 +101,6 @@ void LevelManager::addLevelIfValid(const Level &level)
     levels.append(level);
     qDebug() << "Level loaded:" << level.name << "isCustomLevel:" << level.isCustomLevel;
 }
-
 
 bool LevelManager::validateLevel(const Level &level, QString *errorMessage) const
 {
@@ -182,7 +180,7 @@ bool LevelManager::validateLevel(const Level &level, QString *errorMessage) cons
         return false;
     }
 
-    // 阶段 20：候选编辑点校验
+    // 校验玩家编辑候选点。
     QSet<QString> usedEditablePointKeys;
 
     for (const QPoint &point : level.editablePoints) {
@@ -222,7 +220,7 @@ bool LevelManager::validateLevel(const Level &level, QString *errorMessage) cons
 
         QChar tile = level.mapData[row][col];
 
-        // 候选点不能放在关键结构上
+        // 候选点不能覆盖关键结构。
         if (TileDefs::isWall(tile)
             || TileDefs::isStart(tile)
             || TileDefs::isEnd(tile)
@@ -239,7 +237,6 @@ bool LevelManager::validateLevel(const Level &level, QString *errorMessage) cons
         }
     }
 
-
     return true;
 }
 
@@ -247,8 +244,7 @@ QString LevelManager::levelFolderPath(const QString &folderName) const
 {
     QDir dir(QCoreApplication::applicationDirPath());
 
-    // 与关卡设计师保存路径保持一致：
-    // 从 build/Desktop_Qt_xxx-Debug 回到项目根目录，再读取 levels / custom_levels。
+    // 从构建目录回到项目根目录，再读取关卡文件夹。
     QString currentFolderName = dir.dirName();
 
     if (currentFolderName.startsWith("Desktop_", Qt::CaseInsensitive)
@@ -324,9 +320,7 @@ bool LevelManager::loadLevelFromFile(const QString &filePath, bool isCustomLevel
         return false;
     }
 
-    // 这里必须使用调用者传进来的来源标记。
-    // builtInFolder 调用时传 false，customFolder 调用时传 true。
-    // 这样关卡选择界面才能稳定分成“内置关卡 / 自定义关卡”。
+    // 保留调用方传入的来源标记，用于区分内置关卡和自定义关卡。
     level.isCustomLevel = isCustomLevel;
 
     levels.append(level);
@@ -539,8 +533,7 @@ bool LevelManager::saveLevelToFile(const Level &level,
 
     object["map"] = mapArray;
 
-    // 阶段 20 的候选点也一起保存，方便以后重新编辑。
-    // 阶段 21 要求的核心内容仍然是 name / targetReverseCount / map。
+    // 保存候选点，便于后续继续编辑。
     if (!level.editablePoints.isEmpty()) {
         QJsonArray editablePointsArray;
 
