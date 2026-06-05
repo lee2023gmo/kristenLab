@@ -24,5 +24,6 @@
         <file>resources/images/trampoline_left.png</file>
         <file>resources/images/laser.png</file>
         <file>resources/images/map_background.png</file>
+        <file>resources/images/game_interface_background.png</file>
     </qresource>
 </RCC>

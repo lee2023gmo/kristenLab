@@ -47,6 +47,8 @@ private:
     QLabel *dKeyLabel;
 
     double gameViewScale;
+    bool gameViewAutoFitPending;
+    bool gameViewAutoFitEnabled;
 
     void createInputIndicator();
     void repositionInputIndicator();
@@ -65,6 +67,7 @@ private:
     void zoomGameViewOut();
     void resetGameViewZoom();
     void autoFitGameViewZoom();
+    void scheduleAutoFitGameViewZoom();
 };
 
 #endif // MAINWINDOW_H

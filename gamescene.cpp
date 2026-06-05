@@ -587,6 +587,7 @@ void GameScene::updateStatusText()
                                 .arg(stateText);
 
     if (statusText != nullptr) {
+        statusText->setScale(1.0);
         statusText->setText(
             QString("%1   %2   %3   %4   %5   %6")
                 .arg(levelText)
@@ -596,6 +597,13 @@ void GameScene::updateStatusText()
                 .arg(deathText)
                 .arg(fullStateText)
             );
+
+        // 窄地图中状态文字也按地图宽度自动缩小，避免伸出终端边框。
+        const double maximumWidth = qMax(1.0, sceneRect().width() - 16.0);
+        const double textWidth = statusText->boundingRect().width();
+        if (textWidth > maximumWidth) {
+            statusText->setScale(maximumWidth / textWidth);
+        }
     }
 
     emit statusChanged(

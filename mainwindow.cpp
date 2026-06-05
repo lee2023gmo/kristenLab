@@ -8,18 +8,229 @@
 #include <QDialog>
 #include <QEvent>
 #include <QFrame>
+#include <QGraphicsScene>
 #include <QGraphicsView>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
 #include <QPainter>
+#include <QPixmap>
 #include <QPushButton>
 #include <QVBoxLayout>
 #include <QWidget>
 #include <QScrollArea>
 #include <QTimer>
 #include <QTransform>
+
+namespace {
+
+// 游戏视图专用背景层：背景固定在视口中，不随关卡缩放或滚动。
+// GameScene 仍只负责关卡、碰撞和机关，因此这项改造不会改变游戏逻辑。
+class BackgroundGraphicsView final : public QGraphicsView
+{
+public:
+    explicit BackgroundGraphicsView(QGraphicsScene *scene, QWidget *parent = nullptr)
+        : QGraphicsView(scene, parent)
+        , backgroundPixmap(":/images/resources/images/game_interface_background.png")
+    {
+        // 固定背景在缩放和滚动时需要整块刷新，避免局部更新留下残影。
+        setViewportUpdateMode(QGraphicsView::FullViewportUpdate);
+        setAttribute(Qt::WA_OpaquePaintEvent, false);
+
+        if (viewport() != nullptr) {
+            viewport()->setAutoFillBackground(false);
+            viewport()->setAttribute(Qt::WA_OpaquePaintEvent, false);
+        }
+    }
+
+    // 返回关卡在“自适应窗口”模式下可使用的最大显示区域。
+    // 地图、终端背板和窗口使用同一套动态边距，避免大小比例脱节。
+    QRect mapSafeRect() const
+    {
+        if (viewport() == nullptr) {
+            return QRect();
+        }
+
+        const QRect viewportRect(QPoint(0, 0), viewport()->size());
+        const int outerX = qBound(22, qRound(viewportRect.width() * 0.035), 58);
+        const int outerY = qBound(18, qRound(viewportRect.height() * 0.035), 36);
+        const int frameSide = qBound(30, qRound(viewportRect.width() * 0.035), 52);
+        const int frameTop = qBound(48, qRound(viewportRect.height() * 0.080), 68);
+        const int frameBottom = qBound(26, qRound(viewportRect.height() * 0.045), 42);
+
+        return viewportRect.adjusted(
+            outerX + frameSide,
+            outerY + frameTop,
+            -(outerX + frameSide),
+            -(outerY + frameBottom)
+            );
+    }
+
+protected:
+    void drawBackground(QPainter *painter, const QRectF &rect) override
+    {
+        Q_UNUSED(rect);
+
+        if (painter == nullptr || viewport() == nullptr) {
+            return;
+        }
+
+        painter->save();
+        painter->resetTransform();
+        painter->setRenderHint(QPainter::SmoothPixmapTransform, true);
+        painter->setRenderHint(QPainter::Antialiasing, true);
+
+        const QRect viewportRect(QPoint(0, 0), viewport()->size());
+        painter->fillRect(viewportRect, QColor("#07101a"));
+
+        if (!backgroundPixmap.isNull()) {
+            // 按 KeepAspectRatioByExpanding 的方式铺满视口，窗口变化时不会拉伸变形。
+            const double scaleX = viewportRect.width() / double(backgroundPixmap.width());
+            const double scaleY = viewportRect.height() / double(backgroundPixmap.height());
+            const double scale = qMax(scaleX, scaleY);
+            const QSize drawSize(
+                qRound(backgroundPixmap.width() * scale),
+                qRound(backgroundPixmap.height() * scale)
+                );
+            const QRect targetRect(
+                viewportRect.center().x() - drawSize.width() / 2,
+                viewportRect.center().y() - drawSize.height() / 2,
+                drawSize.width(),
+                drawSize.height()
+                );
+            painter->drawPixmap(targetRect, backgroundPixmap);
+        }
+
+        // 压暗复杂背景，保证角色、机关和网格始终清晰。
+        painter->fillRect(viewportRect, QColor(2, 7, 14, 42));
+
+        // 悬浮终端背板按当前地图在视口中的真实大小自动包裹，避免与地图比例脱节。
+        const QRect boardRect = terminalRect(viewportRect);
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(QColor(0, 4, 9, 190));
+        painter->drawRoundedRect(boardRect.adjusted(-20, -18, 20, 22), 22, 22);
+
+        painter->setBrush(QColor(24, 31, 38, 248));
+        painter->setPen(QPen(QColor(109, 126, 139, 235), 8));
+        painter->drawRoundedRect(boardRect, 14, 14);
+
+        painter->setBrush(QColor(5, 12, 22, 245));
+        painter->setPen(QPen(QColor(30, 49, 66, 245), 3));
+        painter->drawRoundedRect(boardRect.adjusted(18, 34, -18, -18), 8, 8);
+
+        // 顶部细条与四角装饰让终端更接近参考图的工业科技风格。
+        const QRect headerRect(
+            boardRect.left() + 34,
+            boardRect.top() + 18,
+            boardRect.width() - 68,
+            12
+            );
+        painter->setPen(Qt::NoPen);
+        painter->setBrush(QColor(111, 133, 143, 190));
+        painter->drawRoundedRect(headerRect, 4, 4);
+
+        painter->setBrush(Qt::NoBrush);
+        painter->setPen(QPen(QColor(94, 153, 199, 205), 3));
+        const int bracket = 34;
+        painter->drawLine(boardRect.left() + 12, boardRect.top() + bracket,
+                          boardRect.left() + 12, boardRect.top() + 12);
+        painter->drawLine(boardRect.left() + 12, boardRect.top() + 12,
+                          boardRect.left() + bracket, boardRect.top() + 12);
+        painter->drawLine(boardRect.right() - bracket, boardRect.top() + 12,
+                          boardRect.right() - 12, boardRect.top() + 12);
+        painter->drawLine(boardRect.right() - 12, boardRect.top() + 12,
+                          boardRect.right() - 12, boardRect.top() + bracket);
+        painter->drawLine(boardRect.left() + 12, boardRect.bottom() - bracket,
+                          boardRect.left() + 12, boardRect.bottom() - 12);
+        painter->drawLine(boardRect.left() + 12, boardRect.bottom() - 12,
+                          boardRect.left() + bracket, boardRect.bottom() - 12);
+        painter->drawLine(boardRect.right() - bracket, boardRect.bottom() - 12,
+                          boardRect.right() - 12, boardRect.bottom() - 12);
+        painter->drawLine(boardRect.right() - 12, boardRect.bottom() - 12,
+                          boardRect.right() - 12, boardRect.bottom() - bracket);
+
+        painter->restore();
+    }
+
+    void drawForeground(QPainter *painter, const QRectF &rect) override
+    {
+        Q_UNUSED(rect);
+
+        if (painter == nullptr || scene() == nullptr) {
+            return;
+        }
+
+        const QRectF levelRect = scene()->sceneRect();
+        if (!levelRect.isValid() || levelRect.isEmpty()) {
+            return;
+        }
+
+        // 边框跟随真实关卡缩放和滚动，背景本身则保持固定。
+        const QRect mapRect = mapFromScene(levelRect).boundingRect().adjusted(-12, -12, 12, 12);
+
+        painter->save();
+        painter->resetTransform();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+        painter->setBrush(Qt::NoBrush);
+
+        painter->setPen(QPen(QColor(0, 5, 11, 205), 14));
+        painter->drawRoundedRect(mapRect.adjusted(-3, -3, 3, 3), 10, 10);
+        painter->setPen(QPen(QColor(104, 139, 169, 235), 6));
+        painter->drawRoundedRect(mapRect, 8, 8);
+        painter->setPen(QPen(QColor(35, 65, 91, 245), 2));
+        painter->drawRoundedRect(mapRect.adjusted(4, 4, -4, -4), 6, 6);
+
+        painter->restore();
+    }
+
+private:
+    QRect terminalRect(const QRect &viewportRect) const
+    {
+        const QRect safeRect = viewportRect.adjusted(18, 16, -18, -16);
+        const int sidePadding = qBound(22, qRound(viewportRect.width() * 0.022), 34);
+        const int topPadding = qBound(46, qRound(viewportRect.height() * 0.070), 62);
+        const int bottomPadding = qBound(22, qRound(viewportRect.height() * 0.035), 34);
+
+        QRect desiredRect;
+
+        if (scene() != nullptr) {
+            const QRectF levelSceneRect = scene()->sceneRect();
+            if (levelSceneRect.isValid() && !levelSceneRect.isEmpty()) {
+                const QRect mapRect = mapFromScene(levelSceneRect).boundingRect();
+                desiredRect = mapRect.adjusted(
+                    -sidePadding,
+                    -topPadding,
+                    sidePadding,
+                    bottomPadding
+                    );
+            }
+        }
+
+        if (!desiredRect.isValid() || desiredRect.isEmpty()) {
+            const QSize fallbackSize(
+                qMin(640, qMax(280, safeRect.width())),
+                qMin(400, qMax(200, safeRect.height()))
+                );
+            desiredRect = QRect(QPoint(0, 0), fallbackSize);
+            desiredRect.moveCenter(viewportRect.center());
+        }
+
+        // 手动放大或滚动时，背板跟随地图，但始终限制在游戏视口内。
+        const int width = qMin(desiredRect.width(), qMax(1, safeRect.width()));
+        const int height = qMin(desiredRect.height(), qMax(1, safeRect.height()));
+        const int maxLeft = qMax(safeRect.left(), safeRect.right() - width + 1);
+        const int maxTop = qMax(safeRect.top(), safeRect.bottom() - height + 1);
+        const int left = qBound(safeRect.left(), desiredRect.left(), maxLeft);
+        const int top = qBound(safeRect.top(), desiredRect.top(), maxTop);
+
+        return QRect(left, top, width, height);
+    }
+
+    QPixmap backgroundPixmap;
+};
+
+} // namespace
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -39,6 +250,8 @@ MainWindow::MainWindow(QWidget *parent)
     , sKeyLabel(nullptr)
     , dKeyLabel(nullptr)
     , gameViewScale(1.0)
+    , gameViewAutoFitPending(false)
+    , gameViewAutoFitEnabled(true)
 {
     ui->setupUi(this);
 
@@ -81,6 +294,8 @@ void MainWindow::clearGameScene()
     sKeyLabel = nullptr;
     dKeyLabel = nullptr;
     gameViewScale = 1.0;
+    gameViewAutoFitPending = false;
+    gameViewAutoFitEnabled = true;
 }
 
 void MainWindow::setupMainMenu()
@@ -190,10 +405,14 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     resize(1280, 820);
 
     QWidget *central = new QWidget(this);
+    central->setObjectName("gamePage");
     central->setStyleSheet(
-        "background-color: #151821;"
+        "#gamePage {"
+        "background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+        "stop:0 #111827, stop:1 #070b12);"
         "color: white;"
         "font-family: Microsoft YaHei;"
+        "}"
         );
 
     QVBoxLayout *mainLayout = new QVBoxLayout(central);
@@ -204,8 +423,8 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     statusFrame->setObjectName("statusFrame");
     statusFrame->setStyleSheet(
         "#statusFrame {"
-        "background-color: #202638;"
-        "border: 1px solid #33415c;"
+        "background-color: rgba(17, 27, 47, 235);"
+        "border: 1px solid rgba(88, 127, 188, 175);"
         "border-radius: 8px;"
         "}"
         "QLabel {"
@@ -281,12 +500,18 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     gameScene->loadLevelByNumber(startLevelNumber);
     gameScene->refreshStatus();
 
-    gameView = new QGraphicsView(gameScene, central);
+    gameView = new BackgroundGraphicsView(gameScene, central);
     gameView->setRenderHint(QPainter::Antialiasing);
 
-    // 大地图关卡需要横轴和纵轴，不能关闭滚动条。
-    gameView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
-    gameView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+    // 通过键盘切换关卡或其他方式改变场景尺寸时，也重新进入自动适配模式。
+    connect(gameScene, &QGraphicsScene::sceneRectChanged, this, [this](const QRectF &) {
+        gameViewAutoFitEnabled = true;
+        scheduleAutoFitGameViewZoom();
+    });
+
+    // 自适应状态下隐藏不需要的滚动条；手动放大或大地图超出视口时自动出现。
+    gameView->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    gameView->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     gameView->setAlignment(Qt::AlignCenter);
 
     gameView->setFocusPolicy(Qt::StrongFocus);
@@ -295,16 +520,16 @@ void MainWindow::setupGameWindow(int startLevelNumber)
 
     gameView->setStyleSheet(
         "QGraphicsView {"
-        "background-color: #10131f;"
-        "border: 2px solid #3a86ff;"
+        "background: transparent;"
+        "border: 2px solid rgba(73, 126, 220, 215);"
         "border-radius: 8px;"
         "}"
         "QScrollBar:horizontal, QScrollBar:vertical {"
-        "background: #10131f;"
-        "border: 1px solid #33415c;"
+        "background: rgba(7, 13, 23, 225);"
+        "border: 1px solid rgba(68, 96, 143, 190);"
         "}"
         "QScrollBar::handle:horizontal, QScrollBar::handle:vertical {"
-        "background: #4a5568;"
+        "background: rgba(96, 124, 169, 225);"
         "border-radius: 4px;"
         "}"
         );
@@ -315,14 +540,14 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     buttonFrame->setObjectName("buttonFrame");
     buttonFrame->setStyleSheet(
         "#buttonFrame {"
-        "background-color: #202638;"
-        "border: 1px solid #33415c;"
+        "background-color: rgba(17, 27, 47, 235);"
+        "border: 1px solid rgba(88, 127, 188, 175);"
         "border-radius: 8px;"
         "}"
         "QPushButton {"
-        "background-color: #2d3348;"
+        "background-color: rgba(39, 53, 82, 230);"
         "color: white;"
-        "border: 1px solid #4a5568;"
+        "border: 1px solid rgba(105, 137, 187, 175);"
         "border-radius: 6px;"
         "padding: 7px 10px;"
         "font-size: 13px;"
@@ -551,10 +776,7 @@ void MainWindow::setupGameWindow(int startLevelNumber)
         gameScene->setFocus();
     });
 
-    QTimer::singleShot(0, this, [this]() {
-        autoFitGameViewZoom();
-        repositionInputIndicator();
-    });
+    scheduleAutoFitGameViewZoom();
 }
 
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
@@ -563,9 +785,34 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
         && watched == gameView->viewport()
         && event->type() == QEvent::Resize) {
         repositionInputIndicator();
+
+        // 最大化、还原或拖动窗口尺寸时，自动重新适配地图和终端背板。
+        if (gameViewAutoFitEnabled) {
+            scheduleAutoFitGameViewZoom();
+        }
     }
 
     return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::scheduleAutoFitGameViewZoom()
+{
+    // Resize 事件可能连续触发；只在下一轮事件循环中执行一次适配，减少抖动。
+    if (gameViewAutoFitPending) {
+        return;
+    }
+
+    gameViewAutoFitPending = true;
+    QTimer::singleShot(0, this, [this]() {
+        // 先释放挂起标记；如果缩放导致滚动条状态变化并再次触发 Resize，
+        // 下一轮事件循环还可以补做一次精确适配。
+        gameViewAutoFitPending = false;
+
+        if (gameView != nullptr && gameScene != nullptr && gameViewAutoFitEnabled) {
+            autoFitGameViewZoom();
+            repositionInputIndicator();
+        }
+    });
 }
 
 void MainWindow::createInputIndicator()
@@ -698,6 +945,10 @@ void MainWindow::applyGameViewZoom()
     transform.scale(gameViewScale, gameViewScale);
     gameView->setTransform(transform);
 
+    if (gameView->viewport() != nullptr) {
+        gameView->viewport()->update();
+    }
+
     if (viewZoomLabel != nullptr) {
         viewZoomLabel->setText(QString("视图：%1%").arg(qRound(gameViewScale * 100)));
     }
@@ -705,16 +956,19 @@ void MainWindow::applyGameViewZoom()
 
 void MainWindow::zoomGameViewIn()
 {
+    gameViewAutoFitEnabled = false;
     setGameViewScale(gameViewScale * 1.25);
 }
 
 void MainWindow::zoomGameViewOut()
 {
+    gameViewAutoFitEnabled = false;
     setGameViewScale(gameViewScale / 1.25);
 }
 
 void MainWindow::resetGameViewZoom()
 {
+    gameViewAutoFitEnabled = false;
     setGameViewScale(1.0);
 
     if (gameView != nullptr && gameScene != nullptr) {
@@ -740,19 +994,29 @@ void MainWindow::autoFitGameViewZoom()
         return;
     }
 
-    const double availableWidth = qMax(1, viewportSize.width() - 24);
-    const double availableHeight = qMax(1, viewportSize.height() - 24);
+    // 地图和终端背板共用同一套动态安全区域，因此会随窗口成套缩放。
+    QRect safeRect = QRect(QPoint(0, 0), viewportSize).adjusted(72, 84, -72, -62);
+    if (BackgroundGraphicsView *backgroundView = dynamic_cast<BackgroundGraphicsView *>(gameView)) {
+        safeRect = backgroundView->mapSafeRect();
+    }
 
-    double scaleX = availableWidth / sceneRect.width();
-    double scaleY = availableHeight / sceneRect.height();
+    const double availableWidth = qMax(1, safeRect.width());
+    const double availableHeight = qMax(1, safeRect.height());
 
+    const double scaleX = availableWidth / sceneRect.width();
+    const double scaleY = availableHeight / sceneRect.height();
     double fitScale = qMin(scaleX, scaleY);
 
-    // 小地图不强行放大；大地图自动缩小到能看全。
-    fitScale = qMin(fitScale, 1.0);
+    // 小地图允许适度放大；最大 200%，避免像素素材被过度放大。
+    fitScale = qBound(0.05, fitScale, 2.0);
+    gameViewAutoFitEnabled = true;
     setGameViewScale(fitScale);
 
     gameView->centerOn(sceneRect.center());
+
+    if (gameView->viewport() != nullptr) {
+        gameView->viewport()->update();
+    }
 }
 
 void MainWindow::showLevelEditorDialog()
