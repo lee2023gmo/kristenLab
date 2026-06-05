@@ -25,6 +25,9 @@ set(PROJECT_SOURCES
     gamescene.cpp
     gamescene.h
 
+    audioplayer.cpp
+    audioplayer.h
+
     ball.cpp
     ball.h
 

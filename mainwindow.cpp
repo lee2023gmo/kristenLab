@@ -6,7 +6,10 @@
 
 #include <QDebug>
 #include <QDialog>
+#include <QDir>
 #include <QEvent>
+#include <QFile>
+#include <QFileInfo>
 #include <QFrame>
 #include <QGraphicsScene>
 #include <QGraphicsView>
@@ -22,6 +25,7 @@
 #include <QScrollArea>
 #include <QTimer>
 #include <QTransform>
+#include "audioplayer.h"
 
 namespace {
 
@@ -252,9 +256,11 @@ MainWindow::MainWindow(QWidget *parent)
     , gameViewScale(1.0)
     , gameViewAutoFitPending(false)
     , gameViewAutoFitEnabled(true)
+    , bgmPlayer(nullptr)
 {
     ui->setupUi(this);
 
+    setupBackgroundMusic();
     setupMainMenu();
 }
 
@@ -1254,5 +1260,77 @@ void MainWindow::showHelpDialog()
         "青色圆点：数据碎片\n\n"
         "目标：引导小球到达终点，并尽量减少反转次数、收集数据碎片。"
         );
+}
+
+void MainWindow::setupBackgroundMusic()
+{
+    bgmPlayer = new AudioPlayer();
+
+    QString musicPath = findBackgroundMusicPath();
+
+    if (!musicPath.isEmpty()) {
+        if (bgmPlayer->play(musicPath, true)) {
+            bgmPlayer->setVolume(0.5f);
+            QMessageBox::information(this, "背景音乐",
+                QString("已找到并开始播放：\n%1").arg(musicPath));
+        } else {
+            QMessageBox::warning(this, "背景音乐",
+                QString("找到音乐文件但播放失败：\n%1\n\n%2")
+                    .arg(musicPath)
+                    .arg(bgmPlayer->lastError()));
+        }
+    } else {
+        QMessageBox::information(this, "背景音乐",
+            "未找到背景音乐文件。\n\n请把 .mp3 文件放到以下位置之一：\n"
+            "1. 程序同级目录的 music/ 文件夹内\n"
+            "2. 程序同级目录下并命名为 bgm.mp3");
+    }
+}
+
+QString MainWindow::findBackgroundMusicPath() const
+{
+    QDir exeDir(QCoreApplication::applicationDirPath());
+
+    // 1. 优先查找 exe 同级目录下的 music/ 子文件夹中的音频文件。
+    QDir musicDir(exeDir.filePath("music"));
+    if (musicDir.exists()) {
+        QStringList filters;
+        filters << "*.mp3" << "*.wav" << "*.ogg" << "*.flac" << "*.m4a";
+        QFileInfoList files = musicDir.entryInfoList(filters, QDir::Files);
+        if (!files.isEmpty()) {
+            return files.first().absoluteFilePath();
+        }
+    }
+
+    // 2. 查找 exe 同级目录下的 bgm.mp3。
+    QString directPath = exeDir.filePath("bgm.mp3");
+    if (QFile::exists(directPath)) {
+        return directPath;
+    }
+
+    // 3. 开发模式：从项目根目录下的 music/ 文件夹查找。
+    QDir projectDir(exeDir);
+    QString currentFolderName = projectDir.dirName();
+    if (currentFolderName.startsWith("Desktop_", Qt::CaseInsensitive)
+        || currentFolderName.contains("Qt", Qt::CaseInsensitive)
+        || currentFolderName.contains("Debug", Qt::CaseInsensitive)
+        || currentFolderName.contains("Release", Qt::CaseInsensitive)) {
+        projectDir.cdUp();
+    }
+    if (projectDir.dirName().compare("build", Qt::CaseInsensitive) == 0) {
+        projectDir.cdUp();
+    }
+
+    QDir projectMusicDir(projectDir.filePath("music"));
+    if (projectMusicDir.exists()) {
+        QStringList filters;
+        filters << "*.mp3" << "*.wav" << "*.ogg" << "*.flac" << "*.m4a";
+        QFileInfoList files = projectMusicDir.entryInfoList(filters, QDir::Files);
+        if (!files.isEmpty()) {
+            return files.first().absoluteFilePath();
+        }
+    }
+
+    return QString();
 }
 

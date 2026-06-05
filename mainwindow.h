@@ -14,6 +14,7 @@ class QGraphicsView;
 class QEvent;
 class QWidget;
 class GameScene;
+class AudioPlayer;
 
 class MainWindow : public QMainWindow
 {
@@ -49,6 +50,11 @@ private:
     double gameViewScale;
     bool gameViewAutoFitPending;
     bool gameViewAutoFitEnabled;
+
+    AudioPlayer *bgmPlayer;
+
+    void setupBackgroundMusic();
+    QString findBackgroundMusicPath() const;
 
     void createInputIndicator();
     void repositionInputIndicator();
