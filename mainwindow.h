@@ -11,6 +11,8 @@ QT_END_NAMESPACE
 
 class QLabel;
 class QGraphicsView;
+class QEvent;
+class QWidget;
 class GameScene;
 
 class MainWindow : public QMainWindow
@@ -20,6 +22,9 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     Ui::MainWindow *ui;
@@ -35,9 +40,18 @@ private:
     QLabel *stateLabel;
     QLabel *viewZoomLabel;
 
+    QWidget *inputIndicatorWidget;
+    QLabel *wKeyLabel;
+    QLabel *aKeyLabel;
+    QLabel *sKeyLabel;
+    QLabel *dKeyLabel;
+
     double gameViewScale;
 
-    // 主菜单和游戏界面。
+    void createInputIndicator();
+    void repositionInputIndicator();
+    void updateInputIndicator(const QString &activeKey);
+
     void setupMainMenu();
     void setupGameWindow(int startLevelNumber = 1);
     void showLevelSelectDialog();

@@ -9,6 +9,7 @@
 #include <QStringList>
 #include <QVector>
 
+
 class QComboBox;
 class QLabel;
 class QPlainTextEdit;
@@ -81,10 +82,10 @@ private:
     void setupUi();
     void setupConnections();
 
-    // 根据宽高生成表格式地图。
+    // 阶段 24：根据宽度和高度生成表格式地图
     void generateMapTable();
 
-    // 关卡元素绘制工具。
+    // 阶段 25：关卡元素绘制工具
     void setCellTile(int row, int col, QChar tile);
     QChar cellTile(int row, int col) const;
     void updateCellStyle(int row, int col);
@@ -100,7 +101,7 @@ private:
     QColor tileBackgroundColor(QChar tile) const;
     QColor tileTextColor(QChar tile) const;
 
-    // 设计师模式地图校验。
+    // 阶段 26：设计师模式地图校验
     QStringList buildMapDataFromTable() const;
     bool validateMapData(const QStringList &mapData, QString *errorMessage) const;
     bool validateCurrentMap(QString *errorMessage) const;
@@ -117,7 +118,7 @@ private:
     void resetMapZoom();
     void autoFitMapZoom();
 
-    // 玩家编辑模式候选点。
+    // 玩家编辑模式候选点设计
     QString editablePointKey(int row, int col) const;
     bool isEditablePoint(int row, int col) const;
     bool canBeEditablePoint(int row, int col, QString *errorMessage = nullptr) const;
@@ -135,14 +136,14 @@ private:
 
     void paintCellAtViewportPosition(const QPoint &position, QChar tile);
 
-    // 保存为 JSON 文件。
+    // 阶段 27：保存为 JSON 文件
     QString projectRootPath() const;
     QString selectedLevelFolderPath() const;
     QString selectedFolderName() const;
     QString safeFileName(const QString &name) const;
     void saveCurrentLevel();
 
-    // 导入已有 JSON 继续编辑。
+    // 阶段 28：导入已有 JSON 继续编辑
     void importLevelFromJson();
     bool loadLevelJsonFile(const QString &filePath,
                            QString *name,
@@ -154,7 +155,7 @@ private:
 
     void showStageTip(const QString &actionName);
 
-    // 窗口拖动辅助。
+    // 标题栏出屏时的窗口拖动辅助
     bool isBottomDragArea(const QPoint &position) const;
     void startWindowDrag(const QPoint &globalPosition);
     void updateWindowDrag(const QPoint &globalPosition);

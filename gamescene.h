@@ -13,6 +13,7 @@
 #include <QSet>
 #include <QVector>
 
+
 #include "ball.h"
 #include "levelmanager.h"
 
@@ -71,9 +72,11 @@ signals:
                        const QString &reverseText,
                        const QString &deathText,
                        const QString &stateText);
+    void inputDirectionChanged(const QString &activeKey);
 
 protected:
     void keyPressEvent(QKeyEvent *event) override;
+    void keyReleaseEvent(QKeyEvent *event) override;
     void mousePressEvent(QGraphicsSceneMouseEvent *event) override;
 private:
     bool isEditMode;
@@ -133,9 +136,9 @@ private:
 
     void updateGame();
 
-    // 移动逻辑拆分，便于处理碰撞和机关。
     void moveBallOneStep();
 
+    QString indicatorKeyForEvent(int key) const;
     void setGravityDirection(GravityDirection newDirection);
     QString gravityDirectionToString() const;
 
@@ -153,7 +156,7 @@ private:
                                            bool ignoreBelow) const;
     int collisionRadius() const;
 
-    // 只有贴到上下支撑面时才允许改变重力。
+    // 修改：贴墙后才允许改变重力方向；撞墙后不反弹
     bool isTouchingWallAbove() const;
     bool isTouchingWallBelow() const;
     bool hasDirectSupportAbove() const;
@@ -184,6 +187,7 @@ private:
     void applyConveyorEffect(QChar currentTile);
 
     void adjustVelocityToSpeed(int newSpeed);
+
 
     void checkCurrentTile();
     void handleFailure();

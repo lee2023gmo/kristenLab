@@ -788,25 +788,56 @@ void GameScene::moveBallOneStep()
     ball.setPosition(newPosition);
 }
 
+QString GameScene::indicatorKeyForEvent(int key) const
+{
+    switch (key) {
+    case Qt::Key_W:
+    case Qt::Key_Up:
+        return "W";
+
+    case Qt::Key_A:
+    case Qt::Key_Left:
+        return "A";
+
+    case Qt::Key_S:
+    case Qt::Key_Down:
+        return "S";
+
+    case Qt::Key_D:
+    case Qt::Key_Right:
+        return "D";
+
+    default:
+        return QString();
+    }
+}
+
 void GameScene::keyPressEvent(QKeyEvent *event)
 {
     if (isEditMode) {
         event->accept();
         return;
     }
+
+    const QString indicatorKey = indicatorKeyForEvent(event->key());
+
     switch (event->key()) {
+    case Qt::Key_W:
     case Qt::Key_Up:
         setGravityDirection(GravityDirection::Up);
         break;
 
+    case Qt::Key_S:
     case Qt::Key_Down:
         setGravityDirection(GravityDirection::Down);
         break;
 
+    case Qt::Key_A:
     case Qt::Key_Left:
         setGravityDirection(GravityDirection::Left);
         break;
 
+    case Qt::Key_D:
     case Qt::Key_Right:
         setGravityDirection(GravityDirection::Right);
         break;
@@ -832,7 +863,22 @@ void GameScene::keyPressEvent(QKeyEvent *event)
         return;
     }
 
+    if (!indicatorKey.isEmpty()) {
+        emit inputDirectionChanged(indicatorKey);
+    }
+
     event->accept();
+}
+
+void GameScene::keyReleaseEvent(QKeyEvent *event)
+{
+    if (!event->isAutoRepeat() && !indicatorKeyForEvent(event->key()).isEmpty()) {
+        emit inputDirectionChanged("");
+        event->accept();
+        return;
+    }
+
+    QGraphicsScene::keyReleaseEvent(event);
 }
 
 void GameScene::setGravityDirection(GravityDirection newDirection)

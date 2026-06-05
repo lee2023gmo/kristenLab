@@ -6,6 +6,7 @@
 
 #include <QDebug>
 #include <QDialog>
+#include <QEvent>
 #include <QFrame>
 #include <QGraphicsView>
 #include <QGridLayout>
@@ -32,6 +33,11 @@ MainWindow::MainWindow(QWidget *parent)
     , deathLabel(nullptr)
     , stateLabel(nullptr)
     , viewZoomLabel(nullptr)
+    , inputIndicatorWidget(nullptr)
+    , wKeyLabel(nullptr)
+    , aKeyLabel(nullptr)
+    , sKeyLabel(nullptr)
+    , dKeyLabel(nullptr)
     , gameViewScale(1.0)
 {
     ui->setupUi(this);
@@ -47,6 +53,10 @@ MainWindow::~MainWindow()
 
 void MainWindow::clearGameScene()
 {
+    if (gameView != nullptr && gameView->viewport() != nullptr) {
+        gameView->viewport()->removeEventFilter(this);
+    }
+
     if (gameView != nullptr) {
         gameView->setScene(nullptr);
     }
@@ -65,6 +75,11 @@ void MainWindow::clearGameScene()
     deathLabel = nullptr;
     stateLabel = nullptr;
     viewZoomLabel = nullptr;
+    inputIndicatorWidget = nullptr;
+    wKeyLabel = nullptr;
+    aKeyLabel = nullptr;
+    sKeyLabel = nullptr;
+    dKeyLabel = nullptr;
     gameViewScale = 1.0;
 }
 
@@ -269,7 +284,7 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     gameView = new QGraphicsView(gameScene, central);
     gameView->setRenderHint(QPainter::Antialiasing);
 
-    // 大地图需要保留双向滚动条。
+    // 大地图关卡需要横轴和纵轴，不能关闭滚动条。
     gameView->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
     gameView->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
     gameView->setAlignment(Qt::AlignCenter);
@@ -399,6 +414,11 @@ void MainWindow::setupGameWindow(int startLevelNumber)
     mainLayout->addWidget(buttonFrame);
 
     setCentralWidget(central);
+    createInputIndicator();
+
+    connect(gameScene, &GameScene::inputDirectionChanged, this, [this](const QString &activeKey) {
+        updateInputIndicator(activeKey);
+    });
 
     connect(previousButton, &QPushButton::clicked, this, [this]() {
         gameScene->previousLevel();
@@ -437,11 +457,13 @@ void MainWindow::setupGameWindow(int startLevelNumber)
         gameScene->setFocus();
     });
 
+
     connect(slowButton, &QPushButton::clicked, this, [this]() {
         gameScene->selectSlowBlock();
         gameView->setFocus();
         gameScene->setFocus();
     });
+
 
     connect(laserButton, &QPushButton::clicked, this, [this]() {
         gameScene->selectLaserBlock();
@@ -529,7 +551,135 @@ void MainWindow::setupGameWindow(int startLevelNumber)
         gameScene->setFocus();
     });
 
-    QTimer::singleShot(0, this, &MainWindow::autoFitGameViewZoom);
+    QTimer::singleShot(0, this, [this]() {
+        autoFitGameViewZoom();
+        repositionInputIndicator();
+    });
+}
+
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+    if (gameView != nullptr
+        && watched == gameView->viewport()
+        && event->type() == QEvent::Resize) {
+        repositionInputIndicator();
+    }
+
+    return QMainWindow::eventFilter(watched, event);
+}
+
+void MainWindow::createInputIndicator()
+{
+    if (gameView == nullptr || gameView->viewport() == nullptr) {
+        return;
+    }
+
+    inputIndicatorWidget = new QFrame(gameView->viewport());
+    inputIndicatorWidget->setObjectName("inputIndicatorWidget");
+    inputIndicatorWidget->setAttribute(Qt::WA_TransparentForMouseEvents);
+    inputIndicatorWidget->setStyleSheet(
+        "#inputIndicatorWidget {"
+        "background-color: rgba(21, 24, 33, 210);"
+        "border: 1px solid rgba(128, 247, 255, 120);"
+        "border-radius: 10px;"
+        "}"
+        "QLabel#indicatorTitle {"
+        "color: #c9f9ff;"
+        "font-size: 12px;"
+        "font-weight: bold;"
+        "}"
+        );
+
+    QVBoxLayout *layout = new QVBoxLayout(inputIndicatorWidget);
+    layout->setContentsMargins(10, 8, 10, 10);
+    layout->setSpacing(6);
+
+    QLabel *titleLabel = new QLabel("WASD", inputIndicatorWidget);
+    titleLabel->setObjectName("indicatorTitle");
+    titleLabel->setAlignment(Qt::AlignCenter);
+    layout->addWidget(titleLabel);
+
+    auto createKeyLabel = [this]() {
+        QLabel *label = new QLabel(inputIndicatorWidget);
+        label->setAlignment(Qt::AlignCenter);
+        label->setFixedSize(34, 34);
+        return label;
+    };
+
+    wKeyLabel = createKeyLabel();
+    aKeyLabel = createKeyLabel();
+    sKeyLabel = createKeyLabel();
+    dKeyLabel = createKeyLabel();
+
+    wKeyLabel->setText("W");
+    aKeyLabel->setText("A");
+    sKeyLabel->setText("S");
+    dKeyLabel->setText("D");
+
+    QGridLayout *gridLayout = new QGridLayout();
+    gridLayout->setContentsMargins(0, 0, 0, 0);
+    gridLayout->setHorizontalSpacing(4);
+    gridLayout->setVerticalSpacing(4);
+    gridLayout->addWidget(wKeyLabel, 0, 1);
+    gridLayout->addWidget(aKeyLabel, 1, 0);
+    gridLayout->addWidget(sKeyLabel, 1, 1);
+    gridLayout->addWidget(dKeyLabel, 1, 2);
+
+    layout->addLayout(gridLayout);
+
+    gameView->viewport()->installEventFilter(this);
+
+    updateInputIndicator(QString());
+    inputIndicatorWidget->adjustSize();
+    repositionInputIndicator();
+    inputIndicatorWidget->show();
+}
+
+void MainWindow::repositionInputIndicator()
+{
+    if (gameView == nullptr || gameView->viewport() == nullptr || inputIndicatorWidget == nullptr) {
+        return;
+    }
+
+    inputIndicatorWidget->adjustSize();
+
+    const int margin = 16;
+    const QSize indicatorSize = inputIndicatorWidget->sizeHint();
+    const int x = qMax(0, gameView->viewport()->width() - indicatorSize.width() - margin);
+    inputIndicatorWidget->resize(indicatorSize);
+    inputIndicatorWidget->move(x, margin);
+    inputIndicatorWidget->raise();
+}
+
+void MainWindow::updateInputIndicator(const QString &activeKey)
+{
+    auto applyKeyStyle = [&activeKey](QLabel *label) {
+        if (label == nullptr) {
+            return;
+        }
+
+        const bool isActive = (label->text() == activeKey);
+        label->setStyleSheet(
+            isActive
+                ? "background-color: #3a86ff;"
+                  "color: white;"
+                  "border: 1px solid #80f7ff;"
+                  "border-radius: 6px;"
+                  "font-size: 16px;"
+                  "font-weight: bold;"
+                : "background-color: rgba(45, 51, 72, 220);"
+                  "color: #dce6f2;"
+                  "border: 1px solid #4a5568;"
+                  "border-radius: 6px;"
+                  "font-size: 16px;"
+                  "font-weight: bold;"
+            );
+    };
+
+    applyKeyStyle(wKeyLabel);
+    applyKeyStyle(aKeyLabel);
+    applyKeyStyle(sKeyLabel);
+    applyKeyStyle(dKeyLabel);
 }
 
 void MainWindow::setGameViewScale(double scale)
@@ -598,7 +748,7 @@ void MainWindow::autoFitGameViewZoom()
 
     double fitScale = qMin(scaleX, scaleY);
 
-    // 小地图保持原尺寸，大地图自动适配视图。
+    // 小地图不强行放大；大地图自动缩小到能看全。
     fitScale = qMin(fitScale, 1.0);
     setGameViewScale(fitScale);
 
@@ -619,7 +769,9 @@ void MainWindow::showLevelEditorDialog()
 
 void MainWindow::showLevelSelectDialog()
 {
-    // 打开关卡选择时重新扫描关卡目录。
+    // 阶段 22：
+    // 每次打开关卡选择时，都重新扫描 levels 和 custom_levels。
+    // 这样新增 / 删除自定义地图后，界面会自动更新。
     LevelManager previewManager;
     previewManager.loadDefaultLevels();
 
@@ -821,7 +973,9 @@ void MainWindow::showHelpDialog()
     QMessageBox::information(
         this,
         "操作说明",
-        "方向键：切换重力方向\n"
+        "W / A / S / D：上 / 左 / 下 / 右移动，切换对应重力方向\n"
+        "方向键：保留同样的上下左右操作\n"
+        "右上角 WASD 指示器：高亮显示当前触发的方向键，便于路演展示\n"
         "R：重新开始当前关\n"
         "Space：暂停 / 继续\n"
         "P：上一关\n"

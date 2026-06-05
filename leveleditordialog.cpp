@@ -529,7 +529,8 @@ void LevelEditorDialog::setupConnections()
     connect(tileComboBox, &QComboBox::currentIndexChanged, this, [this]() {
         currentTile = currentTileFromCombo();
 
-        // 选择普通元素时关闭候选点模式，避免误操作。
+        // 现在“候选点”已经作为元素工具存在。
+        // 选择普通元素时自动关闭旧的候选点模式，避免误操作。
         if (!isEditablePointTool(currentTile) && isEditablePointMode) {
             setEditablePointMode(false);
         }
@@ -622,7 +623,8 @@ void LevelEditorDialog::setCellTile(int row, int col, QChar tile)
         tile = TileDefs::Empty;
     }
 
-    // 批量操作跳过起点扫描；手绘起点仍保证唯一。
+    // 批量生成 / 清空 / 导入时不需要每次都扫描旧起点。
+    // 用户手动画起点时仍然保证只有一个起点。
     if (!isBulkUpdating && TileDefs::isStart(tile)) {
         clearOldStartTile();
     }
@@ -647,7 +649,8 @@ void LevelEditorDialog::setCellTile(int row, int col, QChar tile)
 
     updateCellStyle(row, col);
 
-    // 批量操作时延后刷新预览，避免大地图卡顿。
+    // 大地图慢的主要原因是：每改一个格子就 buildMapDataFromTable() 重建整张地图预览。
+    // 批量操作时只在最后统一刷新一次。
     if (!isBulkUpdating) {
         updateMapPreview();
     }
@@ -964,6 +967,7 @@ QStringList LevelEditorDialog::buildMapDataFromTable() const
     return mapData;
 }
 
+
 bool LevelEditorDialog::validateMapData(const QStringList &mapData, QString *errorMessage) const
 {
     if (mapData.isEmpty()) {
@@ -1246,7 +1250,9 @@ void LevelEditorDialog::updateMapPreview()
         return;
     }
 
-    // 大地图简化实时预览，保存时仍写入完整地图。
+    // 大地图不再实时显示完整字符串。
+    // 例如 150×150 有 22500 个格子，拖动绘制时每次都拼接完整字符串会明显卡顿。
+    // 保存 JSON 时仍然会完整读取整张地图。
     if (cellCount > 5000) {
         mapPreviewEdit->setPlainText(
             QString("大地图预览已简化，以提升编辑性能。\\n"
@@ -1298,7 +1304,8 @@ void LevelEditorDialog::adjustEditorSizeToMap()
     const int tableWidth = mapTable->columnCount() * mapCellSize + 40;
     const int tableHeight = mapTable->rowCount() * mapCellSize + 40;
 
-    // 地图区域随尺寸增长，超出屏幕后使用滚动条。
+    // 右侧地图区域根据地图大小增长，但窗口只增长到屏幕能放下的大小。
+    // 超出部分使用表格自带横向 / 纵向滚动条浏览。
     const int viewportMinWidth = qBound(520, tableWidth, qMax(520, maxWindowWidth - sidePanelWidth - 110));
     const int viewportMinHeight = qBound(320, tableHeight, qMax(320, maxWindowHeight - 300));
 
@@ -1314,7 +1321,8 @@ void LevelEditorDialog::adjustEditorSizeToMap()
 
 void LevelEditorDialog::setMapCellSize(int cellSize)
 {
-    // 允许缩到 6px，兼顾大图总览和局部编辑。
+    // 原来最小 20px 对 80×80、150×150 这种大地图还是太大。
+    // 现在允许缩到 6px，用来总览大图；需要精细编辑时再放大。
     mapCellSize = qBound(6, cellSize, 60);
 
     if (mapTable != nullptr) {
@@ -1329,7 +1337,7 @@ void LevelEditorDialog::setMapCellSize(int cellSize)
             mapTable->setRowHeight(row, mapCellSize);
         }
 
-        // 文本随格子大小适配。
+        // 字体、END/SLOW 等文本也跟随格子大小重新适配。
         for (int row = 0; row < mapTable->rowCount(); ++row) {
             for (int col = 0; col < mapTable->columnCount(); ++col) {
                 updateCellStyle(row, col);
@@ -1382,7 +1390,9 @@ void LevelEditorDialog::autoFitMapZoom()
     const int rows = mapTable->rowCount();
     const int cols = mapTable->columnCount();
 
-    // 大地图自动缩小，用户仍可手动调整。
+    // 更激进的大地图自动缩放：
+    // 150×150 需要能总览和滚动浏览，所以自动到 6px。
+    // 用户仍然可以用“放大地图 / 缩小地图 / 还原缩放”手动调整。
     if (cols >= 140 || rows >= 140) {
         setMapCellSize(6);
     }
@@ -1705,7 +1715,11 @@ void LevelEditorDialog::paintCellAtViewportPosition(const QPoint &position, QCha
     const int row = index.row();
     const int col = index.column();
 
-    // 候选点工具：左键添加，右键删除；旧模式保留兼容。
+    // 候选点现在是一个真正的绘制工具：
+    // 左键 / 拖动：添加候选点
+    // 右键 / 拖动：删除候选点
+    //
+    // 旧版“候选点模式”也保留兼容。
     if (isEditablePointMode || isEditablePointTool(currentTile) || isEditablePointTool(tile)) {
         if (isErasing) {
             removeEditablePoint(row, col);
@@ -1739,7 +1753,10 @@ QString LevelEditorDialog::projectRootPath() const
 {
     QDir dir(QCoreApplication::applicationDirPath());
 
-    // 从 Qt Creator 构建目录回到项目根目录。
+    // Qt Creator 默认运行目录通常是：
+    // 项目根目录/build/Desktop_Qt_xxx-Debug
+    // 这里向上跳出 Desktop_Qt_xxx-Debug，再跳出 build，
+    // 回到真正的项目根目录。
     QString currentFolderName = dir.dirName();
 
     if (currentFolderName.startsWith("Desktop_", Qt::CaseInsensitive)
@@ -1917,7 +1934,7 @@ void LevelEditorDialog::importLevelFromJson()
     loadMapDataToTable(mapData);
     loadEditablePointsToTable(editablePoints);
 
-    // 导入后默认保存到 custom_levels，避免覆盖内置关卡。
+    // 导入后默认另存到 custom_levels，避免误覆盖内置关卡。
     saveFolderComboBox->setCurrentIndex(0);
 
     QMessageBox::information(
@@ -2189,7 +2206,8 @@ void LevelEditorDialog::fitDialogToAvailableScreen()
         return;
     }
 
-    // 只在窗口超出屏幕时缩小并居中。
+    // 注意：这里的“适应窗口”不是铺满整个屏幕。
+    // 只在窗口太大时缩小到屏幕可见范围内，并把它居中。
     const int maxWidth = qMax(980, availableGeometry.width() - 80);
     const int maxHeight = qMax(620, availableGeometry.height() - 80);
 
@@ -2321,5 +2339,5 @@ void LevelEditorDialog::showStageTip(const QString &actionName)
                           .arg(tileToolTip(currentTile))
                           .arg(actionName);
 
-    QMessageBox::information(this, "地图尺寸提示", message);
+    QMessageBox::information(this, "阶段 29 提示", message);
 }

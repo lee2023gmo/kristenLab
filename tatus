@@ -1,0 +1,545 @@
+[1mdiff --git a/gamescene.cpp b/gamescene.cpp[m
+[1mindex 7627c3b..ac04259 100644[m
+[1m--- a/gamescene.cpp[m
+[1m+++ b/gamescene.cpp[m
+[36m@@ -2,6 +2,7 @@[m
+ #include "constants.h"[m
+ #include "tiledefs.h"[m
+ [m
+[32m+[m
+ #include <QBrush>[m
+ #include <QColor>[m
+ #include <QDebug>[m
+[36m@@ -24,6 +25,9 @@[m
+ #include <QPainter>[m
+ #include <QMovie>[m
+ [m
+[32m+[m
+[32m+[m
+[32m+[m
+ GameScene::GameScene(QObject *parent)[m
+     : QGraphicsScene(parent)[m
+     , currentLevelIndex(0)[m
+[36m@@ -54,7 +58,7 @@[m [mGameScene::GameScene(QObject *parent)[m
+ [m
+     setFocus();[m
+ [m
+[31m-    qDebug() << "LevelManager enabled.";[m
+[32m+[m[32m    qDebug() << "Stage 14 started: LevelManager enabled.";[m
+ }[m
+ void GameScene::loadLevel(int levelIndex)[m
+ {[m
+[36m@@ -80,10 +84,10 @@[m [mvoid GameScene::loadLevel(int levelIndex)[m
+     Level currentLevel = levelManager.levelAt(currentLevelIndex);[m
+     mapData = currentLevel.mapData;[m
+ [m
+[31m-    // 读取关卡配置的候选编辑点。[m
+[32m+[m[32m    // 阶段 20：读取当前关卡的固定候选编辑点[m
+     candidateEditPoints = currentLevel.editablePoints;[m
+ [m
+[31m-    // 兼容旧关卡：没有候选点时自动生成演示点。[m
+[32m+[m[32m    // 如果旧 JSON 没有写 editablePoints，自动从空地里挑几个点，方便演示[m
+     if (candidateEditPoints.isEmpty()) {[m
+         candidateEditPoints = fallbackCandidateEditPoints(4);[m
+     }[m
+[36m@@ -119,22 +123,26 @@[m [mvoid GameScene::loadLevel(int levelIndex)[m
+     qDebug() << "Loaded level:" << currentLevel.name;[m
+ }[m
+ [m
+[32m+[m
+[32m+[m
+ void GameScene::drawMap()[m
+ {[m
+     clear();[m
+ [m
+[31m-    // 清理旧动画。[m
+[32m+[m[32m    // 停止并清理旧的 GIF 动画[m
+     if (ballMovie != nullptr) {[m
+         ballMovie->stop();[m
+         delete ballMovie;[m
+         ballMovie = nullptr;[m
+     }[m
+ [m
+[31m-    // 清空数据碎片图形记录。[m
+[32m+[m[32m    // 阶段 12 新增：清空数据碎片图形记录[m
+     dataFragmentItems.clear();[m
+     laserItems.clear();[m
+     laserLabelItems.clear();[m
+ [m
+[32m+[m
+[32m+[m
+     ball.item = nullptr;[m
+     statusText = nullptr;[m
+ [m
+[36m@@ -149,7 +157,7 @@[m [mvoid GameScene::drawMap()[m
+ [m
+     drawGridBackground(rows, cols);[m
+ [m
+[31m-    // 加载静态资源。[m
+[32m+[m[32m    // 加载美术资源（静态缓存，只加载一次）[m
+     static QPixmap emptyPixmap(":/images/resources/images/empty.png");[m
+     static QPixmap wallPixmap(":/images/resources/images/wall.png");[m
+     static QPixmap endPixmap(":/images/resources/images/end.png");[m
+[36m@@ -164,6 +172,7 @@[m [mvoid GameScene::drawMap()[m
+     static QPixmap trampolineRightPixmap(":/images/resources/images/trampoline_right.png");[m
+     static QPixmap trampolineLeftPixmap(":/images/resources/images/trampoline_left.png");[m
+ [m
+[32m+[m
+     for (int row = 0; row < rows; ++row) {[m
+         for (int col = 0; col < cols; ++col) {[m
+             const QChar tile = mapData[row][col];[m
+[36m@@ -387,17 +396,18 @@[m [mvoid GameScene::drawMap()[m
+ [m
+     createBallAtStart();[m
+ [m
+[31m-    // 编辑模式下绘制候选点提示。[m
+[32m+[m[32m    // 阶段 20：编辑模式下绘制候选编辑点提示[m
+     drawCandidateEditPoints();[m
+ [m
+     createStatusText();[m
+     updateLaserItems();[m
+ [m
+[31m-    qDebug() << "Map loaded.";[m
+[32m+[m[32m    qDebug() << "Stage 12 map loaded.";[m
+     qDebug() << "Start grid position:" << startGridPos;[m
+     qDebug() << "Ball center position:" << ball.position;[m
+ }[m
+ [m
+[32m+[m
+ void GameScene::drawGridBackground(int rows, int cols)[m
+ {[m
+     QPen gridPen(QColor("#27304a"));[m
+[36m@@ -430,6 +440,7 @@[m [mvoid GameScene::addCenteredTextInRect(const QString &text, const QRectF &rect, c[m
+         );[m
+ }[m
+ [m
+[32m+[m
+ QPointF GameScene::gridCenterToScenePos(const QPoint &gridPos) const[m
+ {[m
+     return QPointF([m
+[36m@@ -443,10 +454,10 @@[m [mvoid GameScene::createBallAtStart()[m
+     ball.position = gridCenterToScenePos(startGridPos);[m
+     lastNonLaserBallPosition = ball.position;[m
+     const int targetSize = ball.radius * 3;[m
+[31m-    // 设置与角色贴图匹配的方形碰撞体。[m
+[32m+[m[32m    // 设置方形碰撞体尺寸，与当前显示图片匹配（42x42 → 半尺寸 21）[m
+     ball.collisionHalfSize = ball.radius * 3 / 2;[m
+ [m
+[31m-    // 清理旧动画。[m
+[32m+[m[32m    // 清理旧的动画（保险起见）[m
+     if (ballMovie != nullptr) {[m
+         ballMovie->stop();[m
+         delete ballMovie;[m
+[36m@@ -454,13 +465,13 @@[m [mvoid GameScene::createBallAtStart()[m
+     }[m
+     currentBallMoviePath.clear();[m
+ [m
+[31m-    // 创建静态占位图。[m
+[32m+[m[32m    // 先创建一个初始占位图（静态 fallback）[m
+     QPixmap pixmapToUse;[m
+     static QPixmap ballPixmap(":/images/resources/images/ball.png");[m
+     pixmapToUse = ballPixmap;[m
+ [m
+     if (pixmapToUse.isNull()) {[m
+[31m-        // 资源缺失时绘制占位图。[m
+[32m+[m[32m        // Fallback: draw a purple circle manually[m
+         int d = ball.radius * 2;[m
+         pixmapToUse = QPixmap(d, d);[m
+         pixmapToUse.fill(Qt::transparent);[m
+[36m@@ -482,7 +493,7 @@[m [mvoid GameScene::createBallAtStart()[m
+     ball.item->setPos(ball.position);[m
+     ball.item->setZValue(10);[m
+ [m
+[31m-    // 按重力和速度切换角色动画。[m
+[32m+[m[32m    // 根据当前重力与速度加载对应的动态 GIF[m
+     updateBallMovie();[m
+ }[m
+ [m
+[36m@@ -519,6 +530,7 @@[m [mvoid GameScene::updateStatusText()[m
+         }[m
+     }[m
+ [m
+[32m+[m
+     QString levelName = "未知关卡";[m
+     int targetCount = 0;[m
+ [m
+[36m@@ -577,6 +589,7 @@[m [mvoid GameScene::updateStatusText()[m
+         );[m
+ }[m
+ [m
+[32m+[m
+ QString GameScene::gravityDirectionToString() const[m
+ {[m
+     if (gravityDirection == GravityDirection::Up) {[m
+[36m@@ -605,7 +618,8 @@[m [mvoid GameScene::updateGame()[m
+     elapsedMs += TIMER_INTERVAL;[m
+     updateLaserItems();[m
+ [m
+[31m-    // 激光重新亮起时，将激光格内的角色弹回最近安全位置。[m
+[32m+[m[32m    // 如果玩家在激光熄灭时进入了激光格子，下一次激光点亮时，[m
+[32m+[m[32m    // 直接弹回最近一个非激光格子，避免角色卡在激光内部。[m
+     if (isActiveLaserAt(ball.position)) {[m
+         QPointF blockedMovement = velocity;[m
+         if (blockedMovement == QPointF(0, 0)) {[m
+[36m@@ -626,7 +640,7 @@[m [mvoid GameScene::updateGame()[m
+ [m
+     moveBallOneStep();[m
+ [m
+[31m-    // 离开上下支撑面后，立即按当前重力坠落。[m
+[32m+[m[32m    // 如果小球沿着上/下墙滚动，滚出支撑墙后，立刻按当前重力方向坠落。[m
+     applyGravityAfterLeavingWall();[m
+ [m
+     applyTileEffects();[m
+[36m@@ -646,7 +660,17 @@[m [mvoid GameScene::moveBallOneStep()[m
+     const bool isDiagonalAirMove = (velocity.x() != 0 && velocity.y() != 0);[m
+     const bool shouldStopOnWall = isDiagonalAirMove || isTrampolineLaunchMove;[m
+ [m
+[31m-    // 先处理水平位移；贴地或贴天花板时允许继续接触当前支撑面。[m
+[32m+[m[32m    // 先尝试 x 方向移动。[m
+[32m+[m[32m    //[m
+[32m+[m[32m    // 合并美化后，角色使用更接近“方形区域”的碰撞体。[m
+[32m+[m[32m    // 如果仍然用严格 AABB 检测，角色贴着地面 / 天花板横向移动时，[m
+[32m+[m[32m    // 碰撞体的下边 / 上边会把“支撑墙本身”也当成阻挡，[m
+[32m+[m[32m    // 于是会出现：明明右侧是空地，但按右键走不动。[m
+[32m+[m[32m    //[m
+[32m+[m[32m    // 所以横向移动时使用 canBallMoveToForVelocity：[m
+[32m+[m[32m    // - 贴着下方墙横向走：允许继续接触下方支撑墙[m
+[32m+[m[32m    // - 贴着上方墙横向走：允许继续接触上方支撑墙[m
+[32m+[m[32m    // - 左右墙仍然正常阻挡，避免穿墙[m
+     if (velocity.x() != 0) {[m
+         QPointF horizontalVelocity(velocity.x(), 0);[m
+         QPointF tryXPosition([m
+[36m@@ -664,7 +688,11 @@[m [mvoid GameScene::moveBallOneStep()[m
+             }[m
+ [m
+             if (shouldStopOnWall) {[m
+[31m-                // 空中弹射撞到侧墙时只停止水平分量，保留竖直坠落。[m
+[32m+[m[32m                // 斜向蹦床 / 空中弹射撞到左右墙时，不能把 y 方向也清零。[m
+[32m+[m[32m                //[m
+[32m+[m[32m                // 例如截图中的情况：角色从下方蹦床被弹到右墙，[m
+[32m+[m[32m                // x 方向被右墙挡住后，仍应该按当前重力方向向上坠落，[m
+[32m+[m[32m                // 而不是整个人卡在墙边停止。[m
+                 if (velocity.y() != 0[m
+                     && (gravityDirection == GravityDirection::Up[m
+                         || gravityDirection == GravityDirection::Down)) {[m
+[36m@@ -700,7 +728,8 @@[m [mvoid GameScene::moveBallOneStep()[m
+         }[m
+     }[m
+ [m
+[31m-    // 再处理竖直位移，上下墙始终严格阻挡。[m
+[32m+[m[32m    // 再尝试 y 方向移动。[m
+[32m+[m[32m    // 竖直移动不能忽略上/下墙，否则会穿进墙体。[m
+     if (velocity.y() != 0) {[m
+         QPointF verticalVelocity(0, velocity.y());[m
+         QPointF tryYPosition([m
+[36m@@ -718,7 +747,8 @@[m [mvoid GameScene::moveBallOneStep()[m
+             }[m
+ [m
+             if (shouldStopOnWall) {[m
+[31m-                // 撞到坠落方向的墙面后停止。[m
+[32m+[m[32m                // 竖直方向撞到墙，说明已经撞到当前坠落方向上的墙面，[m
+[32m+[m[32m                // 这里才真正停下。[m
+                 velocity = QPointF(0, 0);[m
+                 isTrampolineLaunchMove = false;[m
+                 ball.setPosition(newPosition);[m
+[36m@@ -764,18 +794,22 @@[m [mvoid GameScene::keyPressEvent(QKeyEvent *event)[m
+         return;[m
+     }[m
+     switch (event->key()) {[m
+[32m+[m[32m    case Qt::Key_W:[m
+     case Qt::Key_Up:[m
+         setGravityDirection(GravityDirection::Up);[m
+         break;[m
+ [m
+[32m+[m[32m    case Qt::Key_S:[m
+     case Qt::Key_Down:[m
+         setGravityDirection(GravityDirection::Down);[m
+         break;[m
+ [m
+[32m+[m[32m    case Qt::Key_A:[m
+     case Qt::Key_Left:[m
+         setGravityDirection(GravityDirection::Left);[m
+         break;[m
+ [m
+[32m+[m[32m    case Qt::Key_D:[m
+     case Qt::Key_Right:[m
+         setGravityDirection(GravityDirection::Right);[m
+         break;[m
+[36m@@ -804,6 +838,7 @@[m [mvoid GameScene::keyPressEvent(QKeyEvent *event)[m
+     event->accept();[m
+ }[m
+ [m
+[32m+[m
+ void GameScene::setGravityDirection(GravityDirection newDirection)[m
+ {[m
+     if (ball.item == nullptr || gameEnded || isPaused) {[m
+[36m@@ -813,7 +848,8 @@[m [mvoid GameScene::setGravityDirection(GravityDirection newDirection)[m
+     const bool touchingAbove = isTouchingWallAbove();[m
+     const bool touchingBelow = isTouchingWallBelow();[m
+ [m
+[31m-    // 只有上下墙算支撑面，左右墙只负责阻挡。[m
+[32m+[m[32m    // 现在只把“上方墙 / 下方墙”当作支撑面。[m
+[32m+[m[32m    // 左右墙不再作为支撑面，避免小球吸在左墙或右墙上。[m
+     if (!touchingAbove && !touchingBelow) {[m
+         qDebug() << "Gravity change denied: ball has no upper/lower wall support.";[m
+         updateStatusText();[m
+[36m@@ -824,7 +860,7 @@[m [mvoid GameScene::setGravityDirection(GravityDirection newDirection)[m
+     QPointF nextVelocity(0, 0);[m
+     bool allowed = false;[m
+ [m
+[31m-    // 贴着下方墙时，可左右滚动或向上离开。[m
+[32m+[m[32m    // 贴着下方墙：可以向左/右滚，也可以向上离开；不能继续向下顶墙。[m
+     if (touchingBelow) {[m
+         if (newDirection == GravityDirection::Left) {[m
+             nextGravityDirection = GravityDirection::Down;[m
+[36m@@ -843,7 +879,8 @@[m [mvoid GameScene::setGravityDirection(GravityDirection newDirection)[m
+         }[m
+     }[m
+ [m
+[31m-    // 贴着上方墙时，可左右滚动或向下离开。[m
+[32m+[m[32m    // 贴着上方墙：可以向左/右滚，也可以向下离开；不能继续向上顶墙。[m
+[32m+[m[32m    // 如果上下都贴墙，优先使用能实际移动的方向。[m
+     if (!allowed && touchingAbove) {[m
+         if (newDirection == GravityDirection::Left) {[m
+             nextGravityDirection = GravityDirection::Up;[m
+[36m@@ -868,7 +905,10 @@[m [mvoid GameScene::setGravityDirection(GravityDirection newDirection)[m
+         return;[m
+     }[m
+ [m
+[31m-    // 新方向若立即撞墙则忽略；横向贴墙移动允许接触当前支撑面。[m
+[32m+[m[32m    // 如果新方向下一步会直接撞墙，也不执行。[m
+[32m+[m[32m    //[m
+[32m+[m[32m    // 这里不能用严格 canBallMoveTo：[m
+[32m+[m[32m    // 当角色贴着地面 / 天花板准备横向走时，支撑墙本身允许继续接触。[m
+     if (!canBallMoveToForVelocity(ball.position + nextVelocity, nextVelocity)) {[m
+         qDebug() << "Gravity change denied: next movement is blocked by wall.";[m
+         updateStatusText();[m
+[36m@@ -893,6 +933,7 @@[m [mvoid GameScene::setGravityDirection(GravityDirection newDirection)[m
+              << "Reverse count:" << reverseCount;[m
+ }[m
+ [m
+[32m+[m
+ void GameScene::restartLevel()[m
+ {[m
+     int oldDeathCount = deathCount;[m
+[36m@@ -1014,6 +1055,7 @@[m [mvoid GameScene::togglePause()[m
+     setFocus();[m
+ }[m
+ [m
+[32m+[m
+ QChar GameScene::tileAtScenePos(const QPointF &scenePos) const[m
+ {[m
+     if (scenePos.x() < 0 || scenePos.y() < 0) {[m
+[36m@@ -1072,7 +1114,8 @@[m [mbool GameScene::canBallMoveToForVelocity(const QPointF &nextPosition,[m
+     const bool horizontalMove = (movement.x() != 0 && movement.y() == 0);[m
+     const bool verticalMove = (movement.y() != 0 && movement.x() == 0);[m
+ [m
+[31m-    // 横向贴支撑面移动时，忽略当前支撑面避免误判。[m
+[32m+[m[32m    // 横向贴地 / 贴天花板移动时，允许继续接触当前支撑面。[m
+[32m+[m[32m    // 否则方形碰撞体会把“脚下地面”或“头顶天花板”误判为横向阻挡。[m
+     const bool ignoreAbove =[m
+         horizontalMove[m
+         && gravityDirection == GravityDirection::Up[m
+[36m@@ -1083,7 +1126,11 @@[m [mbool GameScene::canBallMoveToForVelocity(const QPointF &nextPosition,[m
+         && gravityDirection == GravityDirection::Down[m
+         && isTouchingWallBelow();[m
+ [m
+[31m-    // 纯竖直坠落贴到侧墙时，忽略对应侧边以避免卡墙。[m
+[32m+[m[32m    // 竖直坠落时，如果角色刚撞到左/右墙，允许继续沿重力方向坠落。[m
+[32m+[m[32m    // 这解决了斜向蹦床把角色弹到侧墙后，方形碰撞体因为贴着侧墙而无法向上/向下继续移动的问题。[m
+[32m+[m[32m    //[m
+[32m+[m[32m    // 注意：只在“纯竖直运动”时忽略左右侧墙；[m
+[32m+[m[32m    // 真正的横向移动仍然严格检测左右墙，所以不会横向穿墙。[m
+     const bool ignoreLeft =[m
+         verticalMove[m
+         && (gravityDirection == GravityDirection::Up || gravityDirection == GravityDirection::Down)[m
+[36m@@ -1121,7 +1168,9 @@[m [mbool GameScene::canBallMoveToWithSupportAllowance(const QPointF &nextPosition,[m
+         return isBlockingAt(QPointF(x, y));[m
+     };[m
+ [m
+[31m-    // 仅在竖直坠落脱困时可忽略侧墙。[m
+[32m+[m[32m    // 左右两侧通常严格检测。[m
+[32m+[m[32m    // 只有在“竖直坠落且已经贴着侧墙”时，允许忽略对应侧墙，[m
+[32m+[m[32m    // 让角色能沿当前重力方向离开卡点。[m
+     if (!ignoreLeft && blocked(left, centerY)) {[m
+         return false;[m
+     }[m
+[36m@@ -1130,7 +1179,7 @@[m [mbool GameScene::canBallMoveToWithSupportAllowance(const QPointF &nextPosition,[m
+         return false;[m
+     }[m
+ [m
+[31m-    // 非支撑上边需要完整检测。[m
+[32m+[m[32m    // 上边不是当前支撑面时，检测上边和两个上角。[m
+     if (!ignoreAbove) {[m
+         if (blocked(left, top)[m
+             || blocked(centerX, top)[m
+[36m@@ -1139,7 +1188,7 @@[m [mbool GameScene::canBallMoveToWithSupportAllowance(const QPointF &nextPosition,[m
+         }[m
+     }[m
+ [m
+[31m-    // 非支撑下边需要完整检测。[m
+[32m+[m[32m    // 下边不是当前支撑面时，检测下边和两个下角。[m
+     if (!ignoreBelow) {[m
+         if (blocked(left, bottom)[m
+             || blocked(centerX, bottom)[m
+[36m@@ -1153,7 +1202,11 @@[m [mbool GameScene::canBallMoveToWithSupportAllowance(const QPointF &nextPosition,[m
+ [m
+ int GameScene::collisionRadius() const[m
+ {[m
+[31m-    // 方形碰撞体留出 2px 安全边，减少贴墙和墙角卡死。[m
+[32m+[m[32m    // 仍然保留“方形碰撞区域”的思路，但给边缘留少量安全皮肤。[m
+[32m+[m[32m    // 这可以避免角色贴地/贴天花板时，被支撑墙本身卡住。[m
+[32m+[m[32m    //[m
+[32m+[m[32m    // 视觉半径是 12，碰撞半边长使用 10。[m
+[32m+[m[32m    // 比旧圆形碰撞更稳定，也比完整 12x12 方形少一些墙角卡死。[m
+     int r = ball.collisionHalfSize - 2;[m
+ [m
+     if (r < 1) {[m
+[36m@@ -1245,7 +1298,8 @@[m [mvoid GameScene::repelFromLaserCollision(const QPointF &blockedMovement)[m
+     moveSpeed = BALL_SPEED;[m
+     isTrampolineLaunchMove = false;[m
+ [m
+[31m-    // 激光只在竖直反弹时改变重力，水平碰撞只反向速度。[m
+[32m+[m[32m    // 只有竖直方向被激光反弹时才切换重力方向。[m
+[32m+[m[32m    // 水平贴地/贴天花板滚动撞到激光时，只把水平速度反向，避免破坏当前支撑逻辑。[m
+     if (blockedMovement.y() != 0) {[m
+         if (velocity.y() < 0) {[m
+             gravityDirection = GravityDirection::Up;[m
+[36m@@ -1277,7 +1331,7 @@[m [mbool GameScene::isTouchingWallAbove() const[m
+         return false;[m
+     }[m
+ [m
+[31m-    // 检测方形碰撞体上边缘。[m
+[32m+[m[32m    // 使用方形碰撞体的上边缘做支撑检测[m
+     const double supportRadius = collisionRadius();[m
+     const double probeY = ball.position.y() - supportRadius - BALL_SPEED - 2.0;[m
+     const double leftX = ball.position.x() - supportRadius + 1.0;[m
+[36m@@ -1298,7 +1352,7 @@[m [mbool GameScene::isTouchingWallBelow() const[m
+         return false;[m
+     }[m
+ [m
+[31m-    // 检测方形碰撞体下边缘。[m
+[32m+[m[32m    // 使用方形碰撞体的下边缘做支撑检测[m
+     const double supportRadius = collisionRadius();[m
+     const double probeY = ball.position.y() + supportRadius + BALL_SPEED + 2.0;[m
+     const double leftX = ball.position.x() - supportRadius + 1.0;[m
+[36m@@ -1321,7 +1375,9 @@[m [mbool GameScene::hasDirectSupportAbove() const[m
+ [m
+     const double probeY = ball.position.y() - collisionRadius() - BALL_SPEED - 2.0;[m
+ [m
+[31m-    // 只检测球心正上方，用于识别内凹角误判。[m
+[32m+[m[32m    // 只看球心正上方。[m
+[32m+[m[32m    // 如果宽投影认为有支撑，但正上方没有支撑，[m
+[32m+[m[32m    // 多半是平台侧边/内凹角误判，需要进入脱困逻辑。[m
+     return isWallAt(QPointF(ball.position.x(), probeY));[m
+ }[m
+ [m
+[36m@@ -1333,17 +1389,18 @@[m [mbool GameScene::hasDirectSupportBelow() const[m
+ [m
+     const double probeY = ball.position.y() + collisionRadius() + BALL_SPEED + 2.0;[m
+ [m
+[31m-    // 只检测球心正下方。[m
+[32m+[m[32m    // 只看球心正下方。[m
+     return isWallAt(QPointF(ball.position.x(), probeY));[m
+ }[m
+ [m
+[32m+[m
+ bool GameScene::isTouchingWallLeft() const[m
+ {[m
+     if (ball.item == nullptr) {[m
+         return false;[m
+     }[m
+ [m
+[31m-    // 检测方形碰撞体左边缘。[m
+[32m+[m[32m    // 使用方形碰撞体的左边缘检测[m
+     const double r = collisionRadius();[m
+     const double probeX = ball.position.x() - r - BALL_SPEED - 2.0;[m
+     const double topY = ball.position.y() - r + 1.0;[m
+[36m@@ -1364,7 +1421,7 @@[m [mbool GameScene::isTouchingWallRight() const[m
+         return false;[m
+     }[m
+ [m
+[31m-    // 检测方形碰撞体右边缘。[m
+[32m+[m[32m    // 使用方形碰撞体的右边缘检测[m
+     const double r = collisionRadius();[m
+     const double probeX = ball.position.x() + r + BALL_SPEED + 2.0;[m
+     const double topY = ball.position.y() - r + 1.0;[m
+[36m@@ -1381,7 +1438,8 @@[m [mbool GameScene::isTouchingWallRight() const[m
+ [m
+ bool GameScene::hasAnyWallContact() const[m
+ {[m
+[31m-    // 只有上下墙算可操作支撑面。[m
+[32m+[m[32m    // 只有上方墙 / 下方墙算作可操作支撑面。[m
+[32m+[m[32m    // 左右墙不再算支撑面，避免小球吸在左右墙上。[m
+     return isTouchingWallAbove() || isTouchingWallBelow();[m
+ }[m
+ [m
+[36m@@ -1464,6 +1522,8 @@[m [mbool GameScene::isGravityChangeAllowed(GravityDirection newDirection) const[m
+     return false;[m
+ }[m
+ [m
+[32m+[m
+[32m+[m
+ bool GameScene::tryEscapeCornerAndFall(const QPointF &basePosition,[m
+                                         const QPointF &fallVelocity,[m
+                                         QPointF *escapedPosition) const[m
+[36m@@ -1472,7 +1532,8 @@[m [mbool GameScene::tryEscapeCornerAndFall(const QPointF &basePosition,[m
+         return false;[m
+     }[m
+ [m
+[31m-    // 最多横向探出一个格子，用于从内凹角脱困。[m
+[32m+[m[32m    // 最多允许探出一个格子。[m
+[32m+[m[32m    // 不是瞬移过关，而是为了让球从内凹角的侧边碰撞里脱出来。[m
+     const int maxEscapeDistance = TILE_SIZE;[m
+ [m
+     double firstSign = 1.0;[m
+[36m@@ -1515,12 +1576,18 @@[m [mvoid GameScene::applyGravityAfterLeavingWall()[m
+         return;[m
+     }[m
+ [m
+[31m-    // 蹦床弹射期间不触发离墙坠落修正。[m
+[32m+[m[32m    // 蹦床弹出后属于空中弹射运动。[m
+[32m+[m[32m    // 包括斜向弹出和水平弹出，都不应该被“离开支撑后恢复竖直坠落”的逻辑覆盖。[m
+[32m+[m[32m    // 空中仍然不能改方向，碰墙仍然会在 moveBallOneStep() 里停下。[m
+     if (isTrampolineLaunchMove || (velocity.x() != 0 && velocity.y() != 0)) {[m
+         return;[m
+     }[m
+ [m
+[31m-    // 宽投影和直接支撑不一致时，按内凹角脱困处理。[m
+[32m+[m[32m    // 宽投影函数负责“还沿着平台滚动”的体验；[m
+[32m+[m[32m    // 直接支撑函数负责判断“球心正上/正下是否真的有支撑”。[m
+[32m+[m[32m    //[m
+[32m+[m[32m    // 如果宽投影说有支撑，但直接支撑没有，[m
+[32m+[m[32m    // 多半是内凹角的平台侧边误判。此时不能继续卡着，要尝试按当前重力脱困坠落。[m
+     if (gravityDirection == GravityDirection::Up) {[m
+         QPointF fallVelocity = velocityForGravityDirection(GravityDirection::Up);[m
+ [m
+[36m@@ -1568,7 +1635,8 @@[m [mvoid GameScene::applyGravityAfterLeavingWall()[m
+         }[m
+     }[m
+     else {[m
+[31m-        // 兼容旧状态：左右重力统一恢复为向下坠落。[m
+[32m+[m[32m        // 保险处理：旧版本可能留下 Left/Right 状态。[m
+[32m+[m[32m        // 左右墙不再提供吸附，统一恢复成向下坠落。[m
+         gravityDirection = GravityDirection::Down;[m
+         velocity = velocityForGravityDirection(GravityDirection::Down);[m
+     }[m
+[36m@@ -1619,6 +1687,7 @@[m [mvoid GameScene::checkCurrentTile()[m
+     }[m
+ }[m
+ [m
+[32m+[m
+ void GameScene::handleFailure()[m
+ {[m
+     if (gameEnded) {[m
+[36m@@ -1706,6 +1775,7 @@[m [mvoid GameScene::handleVictory()[m
+     }[m
+ }[m
+ [m
+[32m+[m
+ void GameScene::adjustVelocityToSpeed(int newSpeed)[m
+ {[m
+     moveSpeed = newSpeed;[m
+[36m@@ -1729,29 +1799,34 @@[m [mvoid GameScene::applyTileEffects()[m
+ {[m
+     QChar cur
