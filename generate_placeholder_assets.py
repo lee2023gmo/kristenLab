@@ -8,7 +8,11 @@ TILE = 40
 BALL = 32
 
 def save(img, name):
-    img.save(os.path.join(OUT_DIR, name), "PNG")
+    path = os.path.join(OUT_DIR, name)
+    if os.path.exists(path):
+        print(f"Skipped {name} (already exists)")
+        return
+    img.save(path, "PNG")
     print(f"Generated {name}")
 
 def make_rgba(size, color):
@@ -111,5 +115,59 @@ draw = ImageDraw.Draw(img)
 margin = 4
 draw.rectangle([margin, margin, TILE-margin, TILE-margin], outline=(128,247,255,180), width=2)
 save(img, "candidate_edit.png")
+
+# 11. Laser - active (red beam)
+img = make_rgba((TILE, TILE), None)
+draw = ImageDraw.Draw(img)
+# 红色发光光束
+beam_margin_h = 4
+beam_margin_v = TILE // 2 - 4
+draw.rectangle([beam_margin_h, beam_margin_v, TILE - beam_margin_h, TILE - beam_margin_v],
+               fill=(255, 23, 68, 255), outline=(255, 77, 109, 255), width=2)
+# 中心高亮
+draw.rectangle([beam_margin_h + 2, beam_margin_v + 2, TILE - beam_margin_h - 2, TILE - beam_margin_v - 2],
+               fill=(255, 100, 130, 200))
+try:
+    font = ImageFont.truetype("arial.ttf", 14)
+except:
+    font = ImageFont.load_default()
+draw.text((TILE // 2, TILE // 2), "L", fill=(255, 255, 255, 255), font=font, anchor="mm")
+save(img, "laser.png")
+
+# 12. Laser - inactive (dimmed)
+img = make_rgba((TILE, TILE), None)
+draw = ImageDraw.Draw(img)
+draw.rectangle([beam_margin_h, beam_margin_v, TILE - beam_margin_h, TILE - beam_margin_v],
+               fill=(51, 65, 92, 255), outline=(98, 112, 138, 255), width=2)
+draw.rectangle([beam_margin_h + 2, beam_margin_v + 2, TILE - beam_margin_h - 2, TILE - beam_margin_v - 2],
+               fill=(70, 82, 105, 200))
+draw.text((TILE // 2, TILE // 2), "L", fill=(138, 150, 173, 255), font=font, anchor="mm")
+save(img, "laser_inactive.png")
+
+# 13. Map background - dark tech pattern (larger size, will be scaled by Qt)
+BG_W, BG_H = 400, 400
+img = make_rgba((BG_W, BG_H), None)
+draw = ImageDraw.Draw(img)
+# 深色底
+draw.rectangle([0, 0, BG_W, BG_H], fill=(16, 19, 31, 255))
+#  subtle grid pattern
+for i in range(0, BG_W, 40):
+    draw.line([(i, 0), (i, BG_H)], fill=(39, 48, 74, 120), width=1)
+for j in range(0, BG_H, 40):
+    draw.line([(0, j), (BG_W, j)], fill=(39, 48, 74, 120), width=1)
+# 随机 subtle 噪点/装饰
+import random
+random.seed(42)
+for _ in range(60):
+    rx = random.randint(0, BG_W - 4)
+    ry = random.randint(0, BG_H - 4)
+    rw = random.randint(2, 6)
+    rh = random.randint(2, 6)
+    draw.rectangle([rx, ry, rx + rw, ry + rh], fill=(30, 38, 60, 100))
+# 边缘暗化 vignette
+for step in range(20):
+    alpha = int(20 - step)
+    draw.rectangle([step, step, BG_W - step, BG_H - step], outline=(0, 0, 0, alpha), width=1)
+save(img, "map_background.png")
 
 print("All placeholder assets generated.")

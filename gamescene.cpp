@@ -147,9 +147,21 @@ void GameScene::drawMap()
     setSceneRect(0, 0, cols * TILE_SIZE, rows * TILE_SIZE);
     setBackgroundBrush(QBrush(QColor("#10131f")));
 
+    // 加载静态资源。
+    static QPixmap backgroundPixmap(":/images/resources/images/map_background.png");
+
+    // 如果有完整背景图，先铺满整个场景作为最底层。
+    if (!backgroundPixmap.isNull()) {
+        QGraphicsPixmapItem *bgItem = addPixmap(backgroundPixmap.scaled(
+            cols * TILE_SIZE, rows * TILE_SIZE,
+            Qt::IgnoreAspectRatio,
+            Qt::SmoothTransformation));
+        bgItem->setPos(0, 0);
+        bgItem->setZValue(-1);
+    }
+
     drawGridBackground(rows, cols);
 
-    // 加载静态资源。
     static QPixmap emptyPixmap(":/images/resources/images/empty.png");
     static QPixmap wallPixmap(":/images/resources/images/wall.png");
     static QPixmap endPixmap(":/images/resources/images/end.png");
@@ -163,6 +175,8 @@ void GameScene::drawMap()
     static QPixmap trampolineDownLeftPixmap(":/images/resources/images/trampoline_downleft.png");
     static QPixmap trampolineRightPixmap(":/images/resources/images/trampoline_right.png");
     static QPixmap trampolineLeftPixmap(":/images/resources/images/trampoline_left.png");
+    static QPixmap laserPixmap(":/images/resources/images/laser.png");
+    static QPixmap laserInactivePixmap(":/images/resources/images/laser_inactive.png");
 
     for (int row = 0; row < rows; ++row) {
         for (int col = 0; col < cols; ++col) {
@@ -172,16 +186,19 @@ void GameScene::drawMap()
             const int y = row * TILE_SIZE;
 
             if (TileDefs::isEmpty(tile)) {
-                if (!emptyPixmap.isNull()) {
-                    QGraphicsPixmapItem *p = addPixmap(emptyPixmap.scaled(
-                        TILE_SIZE, TILE_SIZE,
-                        Qt::IgnoreAspectRatio,
-                        Qt::SmoothTransformation));
-                    p->setPos(x, y);
-                    p->setZValue(0);
-                } else {
-                    addRect(x, y, TILE_SIZE, TILE_SIZE,
-                            QPen(QColor("#27304a")), QBrush(QColor("#10131f")));
+                // 有完整背景图时，空地块不再需要单独绘制，避免覆盖底层背景。
+                if (backgroundPixmap.isNull()) {
+                    if (!emptyPixmap.isNull()) {
+                        QGraphicsPixmapItem *p = addPixmap(emptyPixmap.scaled(
+                            TILE_SIZE, TILE_SIZE,
+                            Qt::IgnoreAspectRatio,
+                            Qt::SmoothTransformation));
+                        p->setPos(x, y);
+                        p->setZValue(0);
+                    } else {
+                        addRect(x, y, TILE_SIZE, TILE_SIZE,
+                                QPen(QColor("#27304a")), QBrush(QColor("#10131f")));
+                    }
                 }
             }
             else if (TileDefs::isWall(tile)) {
@@ -286,33 +303,47 @@ void GameScene::drawMap()
                             QPen(QColor("#27304a")), QBrush(QColor("#10131f")));
                 }
 
-                QRectF beamRect(
-                    x + 4,
-                    y + TILE_SIZE / 2.0 - 4,
-                    TILE_SIZE - 8,
-                    8
-                    );
-
-                QGraphicsRectItem *laserBeam = addRect(
-                    beamRect,
-                    QPen(QColor("#ff4d6d"), 2),
-                    QBrush(QColor("#ff1744"))
-                    );
-                laserBeam->setZValue(9);
-
-                QFont laserFont("Arial", 8, QFont::Bold);
-                QGraphicsSimpleTextItem *laserText = addSimpleText("L", laserFont);
-                laserText->setBrush(QColor("#ffffff"));
-                laserText->setZValue(10);
-                QRectF textRect = laserText->boundingRect();
-                laserText->setPos(
-                    x + TILE_SIZE / 2.0 - textRect.width() / 2.0,
-                    y + TILE_SIZE / 2.0 - textRect.height() / 2.0
-                    );
-
                 QString key = gridKey(QPoint(col, row));
-                laserItems.insert(key, laserBeam);
-                laserLabelItems.insert(key, laserText);
+
+                if (!laserPixmap.isNull()) {
+                    // 使用导入的图片绘制激光门。
+                    QGraphicsPixmapItem *laserItem = addPixmap(laserPixmap.scaled(
+                        TILE_SIZE, TILE_SIZE,
+                        Qt::IgnoreAspectRatio,
+                        Qt::SmoothTransformation));
+                    laserItem->setPos(x, y);
+                    laserItem->setZValue(9);
+                    laserItems.insert(key, laserItem);
+                    // 图片模式下不再额外绘制文字标签。
+                } else {
+                    // 回退到代码绘制（无图片资源时）。
+                    QRectF beamRect(
+                        x + 4,
+                        y + TILE_SIZE / 2.0 - 4,
+                        TILE_SIZE - 8,
+                        8
+                        );
+
+                    QGraphicsRectItem *laserBeam = addRect(
+                        beamRect,
+                        QPen(QColor("#ff4d6d"), 2),
+                        QBrush(QColor("#ff1744"))
+                        );
+                    laserBeam->setZValue(9);
+
+                    QFont laserFont("Arial", 8, QFont::Bold);
+                    QGraphicsSimpleTextItem *laserText = addSimpleText("L", laserFont);
+                    laserText->setBrush(QColor("#ffffff"));
+                    laserText->setZValue(10);
+                    QRectF textRect = laserText->boundingRect();
+                    laserText->setPos(
+                        x + TILE_SIZE / 2.0 - textRect.width() / 2.0,
+                        y + TILE_SIZE / 2.0 - textRect.height() / 2.0
+                        );
+
+                    laserItems.insert(key, laserBeam);
+                    laserLabelItems.insert(key, laserText);
+                }
             }
             else if (TileDefs::isTrampoline(tile)) {
                 QPixmap pixmapToUse;
@@ -1167,24 +1198,40 @@ void GameScene::updateLaserItems()
 {
     const bool active = isLaserActive();
 
+    static QPixmap laserPixmap(":/images/resources/images/laser.png");
+    static QPixmap laserInactivePixmap(":/images/resources/images/laser_inactive.png");
+
     QColor beamColor = active ? QColor("#ff1744") : QColor("#33415c");
     QColor penColor = active ? QColor("#ff8fa3") : QColor("#62708a");
     QColor textColor = active ? QColor("#ffffff") : QColor("#8a96ad");
-    qreal opacity = active ? 1.0 : 0.28;
+    qreal rectOpacity = active ? 1.0 : 0.28;
 
     for (auto it = laserItems.begin(); it != laserItems.end(); ++it) {
         QGraphicsRectItem *rectItem = qgraphicsitem_cast<QGraphicsRectItem *>(it.value());
+        QGraphicsPixmapItem *pixmapItem = qgraphicsitem_cast<QGraphicsPixmapItem *>(it.value());
 
-        if (rectItem == nullptr) {
-            continue;
+        if (rectItem != nullptr) {
+            QPen pen(penColor, active ? 2 : 1);
+            pen.setStyle(active ? Qt::SolidLine : Qt::DashLine);
+
+            rectItem->setPen(pen);
+            rectItem->setBrush(QBrush(beamColor));
+            rectItem->setOpacity(rectOpacity);
+        } else if (pixmapItem != nullptr) {
+            // 图片模式：根据亮灭状态切换贴图。
+            if (!active && !laserInactivePixmap.isNull()) {
+                pixmapItem->setPixmap(laserInactivePixmap.scaled(
+                    TILE_SIZE, TILE_SIZE,
+                    Qt::IgnoreAspectRatio,
+                    Qt::SmoothTransformation));
+            } else if (active && !laserPixmap.isNull()) {
+                pixmapItem->setPixmap(laserPixmap.scaled(
+                    TILE_SIZE, TILE_SIZE,
+                    Qt::IgnoreAspectRatio,
+                    Qt::SmoothTransformation));
+            }
+            pixmapItem->setOpacity(active ? 1.0 : 0.45);
         }
-
-        QPen pen(penColor, active ? 2 : 1);
-        pen.setStyle(active ? Qt::SolidLine : Qt::DashLine);
-
-        rectItem->setPen(pen);
-        rectItem->setBrush(QBrush(beamColor));
-        rectItem->setOpacity(opacity);
     }
 
     for (auto it = laserLabelItems.begin(); it != laserLabelItems.end(); ++it) {

@@ -22,5 +22,8 @@
         <file>resources/images/trampoline_downleft.png</file>
         <file>resources/images/trampoline_right.png</file>
         <file>resources/images/trampoline_left.png</file>
+        <file>resources/images/laser.png</file>
+        <file>resources/images/laser_inactive.png</file>
+        <file>resources/images/map_background.png</file>
     </qresource>
 </RCC>
