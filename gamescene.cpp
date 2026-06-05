@@ -1245,7 +1245,6 @@ void GameScene::updateLaserItems()
     const bool active = isLaserActive();
 
     static QPixmap laserPixmap(":/images/resources/images/laser.png");
-    static QPixmap laserInactivePixmap(":/images/resources/images/laser_inactive.png");
 
     QColor beamColor = active ? QColor("#ff1744") : QColor("#33415c");
     QColor penColor = active ? QColor("#ff8fa3") : QColor("#62708a");
@@ -1264,19 +1263,14 @@ void GameScene::updateLaserItems()
             rectItem->setBrush(QBrush(beamColor));
             rectItem->setOpacity(rectOpacity);
         } else if (pixmapItem != nullptr) {
-            // 图片模式：根据亮灭状态切换贴图。
-            if (!active && !laserInactivePixmap.isNull()) {
-                pixmapItem->setPixmap(laserInactivePixmap.scaled(
-                    TILE_SIZE, TILE_SIZE,
-                    Qt::IgnoreAspectRatio,
-                    Qt::SmoothTransformation));
-            } else if (active && !laserPixmap.isNull()) {
+            // 图片模式：始终使用 laser.png，通过透明度区分亮灭状态。
+            if (!laserPixmap.isNull()) {
                 pixmapItem->setPixmap(laserPixmap.scaled(
                     TILE_SIZE, TILE_SIZE,
                     Qt::IgnoreAspectRatio,
                     Qt::SmoothTransformation));
             }
-            pixmapItem->setOpacity(active ? 1.0 : 0.45);
+            pixmapItem->setOpacity(active ? 1.0 : 0.28);
         }
     }
 

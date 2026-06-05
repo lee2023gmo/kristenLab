@@ -134,16 +134,6 @@ except:
 draw.text((TILE // 2, TILE // 2), "L", fill=(255, 255, 255, 255), font=font, anchor="mm")
 save(img, "laser.png")
 
-# 12. Laser - inactive (dimmed)
-img = make_rgba((TILE, TILE), None)
-draw = ImageDraw.Draw(img)
-draw.rectangle([beam_margin_h, beam_margin_v, TILE - beam_margin_h, TILE - beam_margin_v],
-               fill=(51, 65, 92, 255), outline=(98, 112, 138, 255), width=2)
-draw.rectangle([beam_margin_h + 2, beam_margin_v + 2, TILE - beam_margin_h - 2, TILE - beam_margin_v - 2],
-               fill=(70, 82, 105, 200))
-draw.text((TILE // 2, TILE // 2), "L", fill=(138, 150, 173, 255), font=font, anchor="mm")
-save(img, "laser_inactive.png")
-
 # 13. Map background - dark tech pattern (larger size, will be scaled by Qt)
 BG_W, BG_H = 400, 400
 img = make_rgba((BG_W, BG_H), None)
