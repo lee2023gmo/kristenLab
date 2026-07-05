@@ -4,6 +4,7 @@
 #include "levelmanager.h"
 #include "level.h"
 #include "leveleditordialog.h"
+#include "progressmanager.h"
 
 #include <QDebug>
 #include <QDialog>
@@ -16,7 +17,10 @@
 #include <QGraphicsView>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QInputDialog>
+#include <QList>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPixmap>
@@ -1063,6 +1067,8 @@ void MainWindow::showLevelSelectDialog()
     LevelManager previewManager;
     previewManager.loadDefaultLevels();
 
+    ProgressManager progressManager;
+
     QDialog dialog(this);
     dialog.setWindowTitle("关卡选择");
     dialog.resize(460, 560);
@@ -1080,7 +1086,7 @@ void MainWindow::showLevelSelectDialog()
         );
 
     QLabel *hintLabel = new QLabel(
-        "关卡列表会根据 levels 和 custom_levels 文件夹自动生成",
+        "关卡列表会根据 levels 和 custom_levels 文件夹自动生成；自定义关卡支持试玩、编辑、重命名和删除；通关后会保存星级、最佳用时、最少反转和最少死亡次数",
         &dialog
         );
     hintLabel->setAlignment(Qt::AlignCenter);
@@ -1125,29 +1131,238 @@ void MainWindow::showLevelSelectDialog()
 
         levelLayout->addWidget(emptyLabel);
     } else {
+        auto normalizedPath = [](const QString &path) {
+            if (path.trimmed().isEmpty()) {
+                return QString();
+            }
+
+            return QDir::fromNativeSeparators(
+                QDir::cleanPath(QFileInfo(path).absoluteFilePath())
+                );
+        };
+
+        auto reopenLevelSelect = [this, &dialog]() {
+            dialog.accept();
+            QTimer::singleShot(0, this, [this]() {
+                showLevelSelectDialog();
+            });
+        };
+
+        auto openLevelByIndex = [this, &dialog](int levelNumber) {
+            dialog.accept();
+
+            setupGameWindow(levelNumber);
+
+            if (gameView != nullptr) {
+                gameView->setFocus();
+            }
+
+            if (gameScene != nullptr) {
+                gameScene->setFocus();
+            }
+        };
+
+        auto openCustomLevelEditor = [this, &dialog](const Level &level) {
+            dialog.accept();
+
+            LevelEditorDialog editor(this);
+            editor.loadLevelForEditing(level, level.sourceFilePath);
+
+            connect(&editor, &LevelEditorDialog::requestOpenLevelSelect, this, [this, &editor]() {
+                editor.accept();
+                showLevelSelectDialog();
+            });
+
+            connect(&editor, &LevelEditorDialog::requestTestLevel, this, [this, &editor](const Level &testLevel) {
+                editor.accept();
+                setupGameWindowForTestLevel(testLevel);
+            });
+
+            editor.exec();
+        };
+
+        auto renameCustomLevel = [&, this](const Level &level) {
+            bool ok = false;
+            QString newName = QInputDialog::getText(
+                &dialog,
+                QStringLiteral("重命名自定义关卡"),
+                QStringLiteral("请输入新的关卡名称："),
+                QLineEdit::Normal,
+                level.name,
+                &ok
+                ).trimmed();
+
+            if (!ok || newName.isEmpty() || newName == level.name) {
+                return;
+            }
+
+            Level renamedLevel = level;
+            renamedLevel.name = newName;
+            renamedLevel.isCustomLevel = true;
+
+            const QString oldPath = normalizedPath(level.sourceFilePath);
+            const QString newPath = normalizedPath(previewManager.customLevelFilePathForName(newName));
+
+            if (newPath.isEmpty()) {
+                QMessageBox::warning(&dialog, QStringLiteral("重命名失败"), QStringLiteral("无法计算新的保存路径。"));
+                return;
+            }
+
+            if (QFileInfo::exists(newPath) && oldPath != newPath) {
+                QMessageBox::StandardButton overwrite = QMessageBox::question(
+                    &dialog,
+                    QStringLiteral("文件已存在"),
+                    QStringLiteral("目标文件已经存在：\n%1\n\n是否覆盖它？").arg(newPath),
+                    QMessageBox::Yes | QMessageBox::No,
+                    QMessageBox::No
+                    );
+
+                if (overwrite != QMessageBox::Yes) {
+                    return;
+                }
+            }
+
+            QString errorMessage;
+            if (!previewManager.saveLevelToFile(renamedLevel, newPath, &errorMessage)) {
+                QMessageBox::warning(
+                    &dialog,
+                    QStringLiteral("重命名失败"),
+                    QStringLiteral("保存新的关卡文件失败：\n%1").arg(errorMessage)
+                    );
+                return;
+            }
+
+            if (!oldPath.isEmpty() && oldPath != newPath && QFileInfo::exists(oldPath)) {
+                QFile oldFile(oldPath);
+                if (!oldFile.remove()) {
+                    QMessageBox::warning(
+                        &dialog,
+                        QStringLiteral("旧文件清理失败"),
+                        QStringLiteral("新名称已经保存，但旧文件删除失败：\n%1\n\n原因：%2")
+                            .arg(oldPath)
+                            .arg(oldFile.errorString())
+                        );
+                }
+            }
+
+            QMessageBox::information(
+                &dialog,
+                QStringLiteral("重命名成功"),
+                QStringLiteral("自定义关卡已重命名为：%1").arg(newName)
+                );
+
+            reopenLevelSelect();
+        };
+
+        auto deleteCustomLevel = [&, this](const Level &level) {
+            QMessageBox::StandardButton confirm = QMessageBox::question(
+                &dialog,
+                QStringLiteral("删除自定义关卡"),
+                QStringLiteral("确定要删除这个自定义关卡吗？\n\n%1\n\n该操作会删除 custom_levels 中对应的 JSON 文件，不能从游戏内撤销。").arg(level.name),
+                QMessageBox::Yes | QMessageBox::No,
+                QMessageBox::No
+                );
+
+            if (confirm != QMessageBox::Yes) {
+                return;
+            }
+
+            QString errorMessage;
+            if (!previewManager.deleteCustomLevelFile(level, &errorMessage)) {
+                QMessageBox::warning(
+                    &dialog,
+                    QStringLiteral("删除失败"),
+                    QStringLiteral("无法删除自定义关卡：\n%1").arg(errorMessage)
+                    );
+                return;
+            }
+
+            QMessageBox::information(
+                &dialog,
+                QStringLiteral("删除成功"),
+                QStringLiteral("自定义关卡已删除：%1").arg(level.name)
+                );
+
+            reopenLevelSelect();
+        };
+
         auto addLevelButton = [&](int index) {
             Level level = previewManager.levelAt(index);
-            QString buttonText = previewManager.levelSelectTextAt(index);
+            const bool unlocked = level.isCustomLevel || progressManager.isBuiltInLevelUnlocked(index);
 
-            QPushButton *levelButton = new QPushButton(buttonText, scrollWidget);
-            levelButton->setMinimumHeight(42);
-            levelButton->setFocusPolicy(Qt::NoFocus);
-            levelButton->setProperty("customLevel", level.isCustomLevel);
+            QString buttonText = previewManager.levelSelectTextAt(index);
+            buttonText += QStringLiteral("\n");
+            buttonText += progressManager.progressTextForLevel(level, index);
 
             int levelNumber = index + 1;
 
-            connect(levelButton, &QPushButton::clicked, this, [this, levelNumber, &dialog]() {
-                dialog.accept();
+            if (level.isCustomLevel) {
+                QFrame *rowFrame = new QFrame(scrollWidget);
+                rowFrame->setObjectName("customLevelRow");
+                rowFrame->setProperty("customLevel", true);
 
-                setupGameWindow(levelNumber);
+                QHBoxLayout *rowLayout = new QHBoxLayout(rowFrame);
+                rowLayout->setContentsMargins(8, 8, 8, 8);
+                rowLayout->setSpacing(8);
 
-                if (gameView != nullptr) {
-                    gameView->setFocus();
+                QPushButton *playButton = new QPushButton(buttonText, rowFrame);
+                playButton->setMinimumHeight(58);
+                playButton->setFocusPolicy(Qt::NoFocus);
+                playButton->setProperty("customLevel", true);
+                playButton->setProperty("customPlayButton", true);
+
+                QPushButton *editButton = new QPushButton(QStringLiteral("编辑"), rowFrame);
+                QPushButton *renameButton = new QPushButton(QStringLiteral("重命名"), rowFrame);
+                QPushButton *deleteButton = new QPushButton(QStringLiteral("删除"), rowFrame);
+
+                QList<QPushButton *> actionButtons;
+                actionButtons << editButton << renameButton << deleteButton;
+                for (QPushButton *button : actionButtons) {
+                    button->setMinimumHeight(42);
+                    button->setMinimumWidth(72);
+                    button->setFocusPolicy(Qt::NoFocus);
+                    button->setProperty("customAction", true);
                 }
+                deleteButton->setProperty("dangerAction", true);
 
-                if (gameScene != nullptr) {
-                    gameScene->setFocus();
-                }
+                connect(playButton, &QPushButton::clicked, this, [openLevelByIndex, levelNumber]() {
+                    openLevelByIndex(levelNumber);
+                });
+
+                connect(editButton, &QPushButton::clicked, this, [openCustomLevelEditor, level]() {
+                    openCustomLevelEditor(level);
+                });
+
+                connect(renameButton, &QPushButton::clicked, this, [renameCustomLevel, level]() {
+                    renameCustomLevel(level);
+                });
+
+                connect(deleteButton, &QPushButton::clicked, this, [deleteCustomLevel, level]() {
+                    deleteCustomLevel(level);
+                });
+
+                rowLayout->addWidget(playButton, 1);
+                rowLayout->addWidget(editButton);
+                rowLayout->addWidget(renameButton);
+                rowLayout->addWidget(deleteButton);
+
+                levelLayout->addWidget(rowFrame);
+                return;
+            }
+
+            QPushButton *levelButton = new QPushButton(buttonText, scrollWidget);
+            levelButton->setMinimumHeight(58);
+            levelButton->setFocusPolicy(Qt::NoFocus);
+            levelButton->setProperty("customLevel", level.isCustomLevel);
+            levelButton->setProperty("lockedLevel", !unlocked);
+            levelButton->setEnabled(unlocked);
+
+            if (!unlocked) {
+                levelButton->setToolTip(QStringLiteral("请先通关前一关来解锁当前关卡"));
+            }
+
+            connect(levelButton, &QPushButton::clicked, this, [openLevelByIndex, levelNumber]() {
+                openLevelByIndex(levelNumber);
             });
 
             levelLayout->addWidget(levelButton);
@@ -1250,6 +1465,33 @@ void MainWindow::showLevelSelectDialog()
         "QPushButton[customLevel=\"true\"]:hover {"
         "background-color: #2a9d8f;"
         "color: white;"
+        "}"
+        "QPushButton[lockedLevel=\"true\"] {"
+        "background-color: #1f2433;"
+        "border: 1px solid #343b50;"
+        "color: #7d869c;"
+        "}"
+        "QFrame#customLevelRow {"
+        "background-color: rgba(38, 70, 83, 0.35);"
+        "border: 1px solid rgba(42, 157, 143, 0.55);"
+        "border-radius: 10px;"
+        "}"
+        "QPushButton[customAction=\"true\"] {"
+        "background-color: #334155;"
+        "border: 1px solid #64748b;"
+        "text-align: center;"
+        "font-size: 13px;"
+        "padding: 6px;"
+        "}"
+        "QPushButton[customAction=\"true\"]:hover {"
+        "background-color: #3a86ff;"
+        "}"
+        "QPushButton[dangerAction=\"true\"] {"
+        "background-color: #4a1d2b;"
+        "border: 1px solid #b91c1c;"
+        "}"
+        "QPushButton[dangerAction=\"true\"]:hover {"
+        "background-color: #dc2626;"
         "}"
         );
 

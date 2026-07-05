@@ -15,6 +15,7 @@ public:
     QVector<QPoint> editablePoints;
 
     bool isCustomLevel;
+    QString sourceFilePath;
 
     Level();
 
@@ -22,7 +23,8 @@ public:
           const QStringList &levelMapData,
           int targetCount,
           const QVector<QPoint> &levelEditablePoints = QVector<QPoint>(),
-          bool customLevel = false);
+          bool customLevel = false,
+          const QString &sourcePath = QString());
 };
 
 #endif // LEVEL_H

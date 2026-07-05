@@ -27,3 +27,5 @@ Makefile
 *.log
 .DS_Store
 Thumbs.db
+# Local runtime progress
+save/progress.json

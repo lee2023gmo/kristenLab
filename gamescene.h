@@ -136,6 +136,7 @@ private:
 
     void loadLevel(int levelIndex);
     void applyLevelData(const Level &currentLevel);
+    bool isLevelUnlocked(int levelIndex) const;
 
     void drawMap();
     void drawGridBackground(int rows, int cols);
@@ -208,9 +209,16 @@ private:
     void adjustVelocityToSpeed(int newSpeed);
 
 
+    enum class CompletionAction {
+        Stay,
+        Restart,
+        Next
+    };
+
     void checkCurrentTile();
     void handleFailure();
     void handleVictory();
+    CompletionAction showCompletionDialog(const Level &currentLevel, int stars);
     QString elapsedTimeText() const;
 
     int countDataFragments() const;

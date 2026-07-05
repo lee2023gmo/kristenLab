@@ -34,6 +34,10 @@ public:
 
     QString customLevelFolderPath() const;
 
+    QString customLevelFilePathForName(const QString &levelName) const;
+    bool deleteCustomLevelFile(const Level &level,
+                               QString *errorMessage = nullptr) const;
+
     bool isCustomLevelIndex(int index) const;
     QString levelSelectTextAt(int index) const;
 private:
@@ -46,6 +50,7 @@ private:
     void addFallbackLevel();
 
     bool isFileInFolder(const QString &filePath, const QString &folderPath) const;
+    QString safeLevelFileName(const QString &name) const;
 };
 
 #endif // LEVELMANAGER_H

@@ -27,6 +27,7 @@ class LevelEditorDialog : public QDialog
 
 public:
     explicit LevelEditorDialog(QWidget *parent = nullptr);
+    void loadLevelForEditing(const Level &level, const QString &sourceFilePath = QString());
 
 signals:
     void requestOpenLevelSelect();
@@ -76,6 +77,8 @@ private:
     bool isEditablePointMode;
     bool isDraggingWindow;
     bool isRestoringSnapshot;
+    bool isEditingExistingCustomLevel;
+    QString editingSourceFilePath;
     QPoint dragWindowOffset;
     QSet<QString> editablePointKeys;
     QVector<EditorSnapshot> undoStack;

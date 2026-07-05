@@ -65,6 +65,8 @@ LevelEditorDialog::LevelEditorDialog(QWidget *parent)
     , isEditablePointMode(false)
     , isDraggingWindow(false)
     , isRestoringSnapshot(false)
+    , isEditingExistingCustomLevel(false)
+    , editingSourceFilePath(QString())
     , dragWindowOffset(QPoint(0, 0))
     , mapPlaceholderLabel(nullptr)
     , mapTable(nullptr)
@@ -87,6 +89,33 @@ LevelEditorDialog::LevelEditorDialog(QWidget *parent)
 {
     setupUi();
     setupConnections();
+}
+
+void LevelEditorDialog::loadLevelForEditing(const Level &level, const QString &sourceFilePath)
+{
+    if (level.mapData.isEmpty()) {
+        return;
+    }
+
+    isEditingExistingCustomLevel = level.isCustomLevel;
+    editingSourceFilePath = sourceFilePath.trimmed().isEmpty()
+                                ? level.sourceFilePath
+                                : sourceFilePath;
+
+    nameEdit->setText(level.name);
+    targetReverseSpinBox->setValue(level.targetReverseCount);
+    saveFolderComboBox->setCurrentIndex(0);
+
+    loadMapDataToTable(level.mapData);
+    loadEditablePointsToTable(level.editablePoints);
+
+    undoStack.clear();
+    redoStack.clear();
+    updateUndoRedoButtons();
+
+    if (isEditingExistingCustomLevel) {
+        setWindowTitle(QStringLiteral("关卡设计师 - 编辑自定义关卡：%1").arg(level.name));
+    }
 }
 
 bool LevelEditorDialog::eventFilter(QObject *watched, QEvent *event)
@@ -2147,8 +2176,30 @@ void LevelEditorDialog::saveCurrentLevel()
 
     QString folderPath = selectedLevelFolderPath();
     QString filePath = QDir(folderPath).filePath(safeFileName(levelName));
+    QString folderName = selectedFolderName();
 
-    if (QFileInfo::exists(filePath)) {
+    QString oldEditingPath;
+    if (!editingSourceFilePath.trimmed().isEmpty()) {
+        oldEditingPath = QDir::fromNativeSeparators(
+            QDir::cleanPath(QFileInfo(editingSourceFilePath).absoluteFilePath())
+            );
+    }
+
+    QString newSavePath = QDir::fromNativeSeparators(
+        QDir::cleanPath(QFileInfo(filePath).absoluteFilePath())
+        );
+
+    bool overwriteSameCustomFile = false;
+    bool shouldRemoveOldCustomFile = false;
+
+    if (isEditingExistingCustomLevel
+        && folderName == QStringLiteral("custom_levels")
+        && !oldEditingPath.trimmed().isEmpty()) {
+        overwriteSameCustomFile = (oldEditingPath == newSavePath);
+        shouldRemoveOldCustomFile = !overwriteSameCustomFile;
+    }
+
+    if (QFileInfo::exists(filePath) && !overwriteSameCustomFile) {
         QMessageBox::StandardButton result = QMessageBox::question(
             this,
             "文件已存在",
@@ -2176,17 +2227,39 @@ void LevelEditorDialog::saveCurrentLevel()
     file.write(document.toJson(QJsonDocument::Indented));
     file.close();
 
-    QString folderName = selectedFolderName();
+    if (shouldRemoveOldCustomFile && QFileInfo::exists(oldEditingPath)) {
+        QFile oldFile(oldEditingPath);
+        if (!oldFile.remove()) {
+            QMessageBox::warning(
+                this,
+                "旧文件清理失败",
+                QString("新关卡文件已经保存，但旧文件删除失败：\n%1\n\n原因：%2")
+                    .arg(oldEditingPath)
+                    .arg(oldFile.errorString())
+                );
+        }
+    }
+
+    if (folderName == QStringLiteral("custom_levels")) {
+        isEditingExistingCustomLevel = true;
+        editingSourceFilePath = filePath;
+        setWindowTitle(QStringLiteral("关卡设计师 - 编辑自定义关卡：%1").arg(levelName));
+    }
+
+    const QString saveActionText = overwriteSameCustomFile
+                                       ? QStringLiteral("自定义关卡已更新")
+                                       : QStringLiteral("保存成功");
 
     QMessageBox::StandardButton result = QMessageBox::question(
         this,
-        "保存成功",
-        QString("保存成功！\n\n文件已保存到项目根目录下的 %1 文件夹。\n\n玩家编辑候选点：%2 个\n\n完整路径：\n%3\n\n是否立即回到关卡选择界面查看新关卡？")
+        saveActionText,
+        QString("%1！\n\n文件已保存到项目根目录下的 %2 文件夹。\n\n玩家编辑候选点：%3 个\n\n完整路径：\n%4\n\n是否立即回到关卡选择界面查看关卡？")
+            .arg(saveActionText)
             .arg(folderName)
             .arg(editablePoints.size())
             .arg(filePath),
         QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::Yes
+        QMessageBox::No
         );
 
     if (result == QMessageBox::Yes) {
@@ -2231,7 +2304,10 @@ void LevelEditorDialog::importLevelFromJson()
     loadMapDataToTable(mapData);
     loadEditablePointsToTable(editablePoints);
 
-    // 导入后默认另存到 custom_levels，避免误覆盖内置关卡。
+    // 导入后默认另存到 custom_levels，避免误覆盖已有自定义关卡或内置关卡。
+    isEditingExistingCustomLevel = false;
+    editingSourceFilePath.clear();
+    setWindowTitle(QStringLiteral("关卡设计师"));
     saveFolderComboBox->setCurrentIndex(0);
 
     QMessageBox::information(

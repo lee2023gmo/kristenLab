@@ -37,6 +37,9 @@ set(PROJECT_SOURCES
     levelmanager.cpp
     levelmanager.h
 
+    progressmanager.cpp
+    progressmanager.h
+
     constants.h
     tiledefs.h
 

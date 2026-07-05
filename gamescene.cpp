@@ -1,6 +1,7 @@
 #include "gamescene.h"
 #include "constants.h"
 #include "tiledefs.h"
+#include "progressmanager.h"
 
 #include <QBrush>
 #include <QColor>
@@ -23,6 +24,13 @@
 #include <QRegularExpression>
 #include <QPainter>
 #include <QMovie>
+#include <QDialog>
+#include <QGridLayout>
+#include <QHBoxLayout>
+#include <QLabel>
+#include <QVBoxLayout>
+#include <QSizePolicy>
+#include <QFrame>
 
 GameScene::GameScene(QObject *parent)
     : QGraphicsScene(parent)
@@ -79,6 +87,15 @@ void GameScene::loadLevel(int levelIndex)
         return;
     }
 
+    if (!isLevelUnlocked(levelIndex)) {
+        QMessageBox::information(
+            nullptr,
+            QStringLiteral("关卡未解锁"),
+            QStringLiteral("请先通关前面的关卡，再挑战这一关。")
+            );
+        return;
+    }
+
     currentLevelIndex = levelIndex;
     isTemporaryTestLevel = false;
     temporaryTestLevel = Level();
@@ -87,6 +104,21 @@ void GameScene::loadLevel(int levelIndex)
     applyLevelData(currentLevel);
 
     qDebug() << "Loaded level:" << currentLevel.name;
+}
+
+bool GameScene::isLevelUnlocked(int levelIndex) const
+{
+    if (!levelManager.isValidLevelIndex(levelIndex)) {
+        return false;
+    }
+
+    Level level = levelManager.levelAt(levelIndex);
+    if (level.isCustomLevel) {
+        return true;
+    }
+
+    ProgressManager progressManager;
+    return progressManager.isBuiltInLevelUnlocked(levelIndex);
 }
 
 void GameScene::loadTemporaryLevelForTest(const Level &level)
@@ -1992,56 +2024,271 @@ void GameScene::handleVictory()
 
     updateStatusText();
 
+    Level currentLevel = isTemporaryTestLevel
+                             ? temporaryTestLevel
+                             : levelManager.levelAt(currentLevelIndex);
+
+    const int stars = calculateStars();
+
+    if (!isTemporaryTestLevel) {
+        ProgressManager progressManager;
+        QString progressError;
+        if (!progressManager.updateAfterCompletion(currentLevel,
+                                                   currentLevelIndex,
+                                                   stars,
+                                                   elapsedMs,
+                                                   reverseCount,
+                                                   deathCount,
+                                                   &progressError)) {
+            qWarning() << "Progress save failed:" << progressError;
+        } else {
+            qDebug() << "Progress saved for level:" << currentLevel.name;
+        }
+    }
+
+    const CompletionAction action = showCompletionDialog(currentLevel, stars);
+
+    if (action == CompletionAction::Next) {
+        if (!isTemporaryTestLevel && levelManager.isValidLevelIndex(currentLevelIndex + 1)) {
+            nextLevel();
+            return;
+        }
+    }
+    else if (action == CompletionAction::Restart) {
+        restartLevel();
+        return;
+    }
+
+    setFocus();
+}
+
+GameScene::CompletionAction GameScene::showCompletionDialog(const Level &currentLevel, int stars)
+{
     QWidget *parentWidget = nullptr;
 
     if (!views().isEmpty()) {
         parentWidget = views().first();
     }
 
-    Level currentLevel = isTemporaryTestLevel
-                             ? temporaryTestLevel
-                             : levelManager.levelAt(currentLevelIndex);
+    const bool hasNextLevel = !isTemporaryTestLevel &&
+                              levelManager.isValidLevelIndex(currentLevelIndex + 1);
+    const bool passedReverseTarget = reverseCount <= currentLevel.targetReverseCount;
+    const bool collectedAllData = totalDataFragmentCount > 0 &&
+                                  collectedDataFragmentCount >= totalDataFragmentCount;
 
-    int stars = calculateStars();
+    QDialog dialog(parentWidget);
+    dialog.setModal(true);
+    dialog.setWindowTitle(isTemporaryTestLevel ? QStringLiteral("测试关卡结算")
+                                               : QStringLiteral("通关结算"));
+    dialog.setMinimumWidth(460);
 
-    QString message = QString("通关成功！\n\n关卡：%1\n用时：%2 秒\n反转次数：%3\n数据碎片：%4 / %5\n星级：%6")
-                          .arg(currentLevel.name)
-                          .arg(elapsedTimeText())
-                          .arg(reverseCount)
-                          .arg(collectedDataFragmentCount)
-                          .arg(totalDataFragmentCount)
-                          .arg(starText(stars));
+    QVBoxLayout *mainLayout = new QVBoxLayout(&dialog);
+    mainLayout->setContentsMargins(24, 22, 24, 20);
+    mainLayout->setSpacing(14);
 
-    if (!isTemporaryTestLevel && levelManager.isValidLevelIndex(currentLevelIndex + 1)) {
-        QMessageBox::StandardButton result = QMessageBox::question(
-            parentWidget,
-            "通关成功",
-            message + "\n\n是否进入下一关？",
-            QMessageBox::Yes | QMessageBox::No,
-            QMessageBox::Yes
-            );
+    QLabel *titleLabel = new QLabel(isTemporaryTestLevel
+                                        ? QStringLiteral("测试通过！")
+                                        : QStringLiteral("关卡完成！"), &dialog);
+    QFont titleFont = titleLabel->font();
+    titleFont.setPointSize(titleFont.pointSize() + 8);
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    titleLabel->setAlignment(Qt::AlignCenter);
+    titleLabel->setStyleSheet(QStringLiteral("color: #f8f8f2;"));
+    mainLayout->addWidget(titleLabel);
 
-        if (result == QMessageBox::Yes) {
-            nextLevel();
+    QLabel *starLabel = new QLabel(starText(stars), &dialog);
+    QFont starFont = starLabel->font();
+    starFont.setPointSize(starFont.pointSize() + 14);
+    starFont.setBold(true);
+    starLabel->setFont(starFont);
+    starLabel->setAlignment(Qt::AlignCenter);
+    starLabel->setStyleSheet(QStringLiteral("color: #ffd166;"));
+    mainLayout->addWidget(starLabel);
+
+    QFrame *summaryFrame = new QFrame(&dialog);
+    summaryFrame->setFrameShape(QFrame::StyledPanel);
+    summaryFrame->setStyleSheet(QStringLiteral(
+        "QFrame { background: #202638; border: 1px solid #3b4564; border-radius: 10px; }"
+        "QLabel { color: #f8f8f2; background: transparent; border: none; }"
+    ));
+
+    QGridLayout *summaryLayout = new QGridLayout(summaryFrame);
+    summaryLayout->setContentsMargins(16, 14, 16, 14);
+    summaryLayout->setHorizontalSpacing(16);
+    summaryLayout->setVerticalSpacing(8);
+
+    auto addMetricRow = [&](int row, const QString &label, const QString &value, const QString &color = QString()) {
+        QLabel *nameLabel = new QLabel(label, summaryFrame);
+        nameLabel->setStyleSheet(QStringLiteral("color: #bdc7e6; background: transparent; border: none;"));
+
+        QLabel *valueLabel = new QLabel(value, summaryFrame);
+        valueLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        if (!color.isEmpty()) {
+            valueLabel->setStyleSheet(QStringLiteral("color: %1; background: transparent; border: none; font-weight: 700;").arg(color));
         } else {
-            setFocus();
+            valueLabel->setStyleSheet(QStringLiteral("color: #f8f8f2; background: transparent; border: none; font-weight: 700;"));
         }
-    } else {
-        const QString dialogTitle = isTemporaryTestLevel
-                                        ? QStringLiteral("测试通过")
-                                        : QStringLiteral("全部通关");
-        const QString dialogSuffix = isTemporaryTestLevel
-                                         ? QStringLiteral("\n\n当前设计器关卡可以正常通关。")
-                                         : QStringLiteral("\n\n你已经完成所有关卡！");
 
-        QMessageBox::information(
-            parentWidget,
-            dialogTitle,
-            message + dialogSuffix
-            );
+        summaryLayout->addWidget(nameLabel, row, 0, Qt::AlignLeft | Qt::AlignTop);
+        summaryLayout->addWidget(valueLabel, row, 1, Qt::AlignLeft | Qt::AlignTop);
+    };
 
-        setFocus();
+    int row = 0;
+    addMetricRow(row++, QStringLiteral("关卡"), currentLevel.name);
+    addMetricRow(row++, QStringLiteral("用时"), QStringLiteral("%1 秒").arg(elapsedTimeText()));
+    addMetricRow(row++, QStringLiteral("反转次数"),
+                 QStringLiteral("%1 / 目标 %2  %3")
+                     .arg(reverseCount)
+                     .arg(currentLevel.targetReverseCount)
+                     .arg(passedReverseTarget ? QStringLiteral("达标") : QStringLiteral("未达标")),
+                 passedReverseTarget ? QStringLiteral("#50fa7b") : QStringLiteral("#ffb86c"));
+
+    const QString dataText = totalDataFragmentCount > 0
+                                 ? QStringLiteral("%1 / %2  %3")
+                                       .arg(collectedDataFragmentCount)
+                                       .arg(totalDataFragmentCount)
+                                       .arg(collectedAllData ? QStringLiteral("全收集") : QStringLiteral("未全收集"))
+                                 : QStringLiteral("本关无数据碎片");
+    addMetricRow(row++, QStringLiteral("数据碎片"), dataText,
+                 (totalDataFragmentCount == 0 || collectedAllData) ? QStringLiteral("#50fa7b") : QStringLiteral("#ffb86c"));
+
+    if (totalKeyCount > 0) {
+        addMetricRow(row++, QStringLiteral("钥匙"),
+                     QStringLiteral("%1 / %2").arg(collectedKeyCount).arg(totalKeyCount),
+                     collectedKeyCount >= totalKeyCount ? QStringLiteral("#50fa7b") : QStringLiteral("#8be9fd"));
     }
+
+    addMetricRow(row++, QStringLiteral("死亡次数"), QString::number(deathCount));
+    addMetricRow(row++, QStringLiteral("星级"), starText(stars));
+
+    if (!isTemporaryTestLevel) {
+        ProgressManager progressManager;
+        ProgressManager::Record bestRecord = progressManager.recordForLevel(currentLevel);
+        if (bestRecord.completed) {
+            addMetricRow(row++,
+                         QStringLiteral("历史最佳"),
+                         QStringLiteral("%1  最快 %2 秒  最少反转 %3  最少死亡 %4")
+                             .arg(ProgressManager::starText(bestRecord.bestStars))
+                             .arg(ProgressManager::formatTimeMs(bestRecord.bestTimeMs))
+                             .arg(bestRecord.bestReverseCount)
+                             .arg(bestRecord.bestDeathCount),
+                         QStringLiteral("#8be9fd"));
+        }
+    }
+
+    summaryLayout->setColumnStretch(1, 1);
+    mainLayout->addWidget(summaryFrame);
+
+    QFrame *ruleFrame = new QFrame(&dialog);
+    ruleFrame->setFrameShape(QFrame::NoFrame);
+    ruleFrame->setStyleSheet(QStringLiteral(
+        "QFrame { background: #161b29; border: 1px solid #2c344d; border-radius: 8px; }"
+        "QLabel { color: #d7def7; background: transparent; border: none; }"
+    ));
+
+    QVBoxLayout *ruleLayout = new QVBoxLayout(ruleFrame);
+    ruleLayout->setContentsMargins(14, 12, 14, 12);
+    ruleLayout->setSpacing(6);
+
+    QLabel *ruleTitle = new QLabel(QStringLiteral("星级计算"), ruleFrame);
+    QFont ruleTitleFont = ruleTitle->font();
+    ruleTitleFont.setBold(true);
+    ruleTitle->setFont(ruleTitleFont);
+    ruleTitle->setStyleSheet(QStringLiteral("color: #8be9fd; background: transparent; border: none;"));
+    ruleLayout->addWidget(ruleTitle);
+
+    QStringList ruleLines;
+    ruleLines << QStringLiteral("✓ 完成关卡：+1 星");
+    ruleLines << (passedReverseTarget
+                      ? QStringLiteral("✓ 反转次数未超过目标：+1 星")
+                      : QStringLiteral("— 反转次数超过目标：+0 星"));
+
+    if (totalDataFragmentCount > 0) {
+        ruleLines << (collectedAllData
+                          ? QStringLiteral("✓ 收集全部数据碎片：+1 星")
+                          : QStringLiteral("— 未收集全部数据碎片：+0 星"));
+    } else {
+        ruleLines << QStringLiteral("— 本关无数据碎片：该项不计星");
+    }
+
+    for (const QString &line : ruleLines) {
+        QLabel *lineLabel = new QLabel(line, ruleFrame);
+        lineLabel->setWordWrap(true);
+        ruleLayout->addWidget(lineLabel);
+    }
+
+    mainLayout->addWidget(ruleFrame);
+
+    QLabel *hintLabel = new QLabel(&dialog);
+    hintLabel->setWordWrap(true);
+    hintLabel->setAlignment(Qt::AlignCenter);
+    hintLabel->setStyleSheet(QStringLiteral("color: #bdc7e6;"));
+    if (isTemporaryTestLevel) {
+        hintLabel->setText(QStringLiteral("当前设计器关卡可以正常通关。你可以继续测试，或关闭结果返回当前测试画面。"));
+    } else if (hasNextLevel) {
+        hintLabel->setText(QStringLiteral("成绩已保存，下一关已解锁。你可以进入下一关，也可以重玩本关挑战更高星级。"));
+    } else {
+        hintLabel->setText(QStringLiteral("成绩已保存。你已经完成最后一关，可以重玩本关继续挑战成绩。"));
+    }
+    mainLayout->addWidget(hintLabel);
+
+    QHBoxLayout *buttonLayout = new QHBoxLayout();
+    buttonLayout->setSpacing(10);
+    buttonLayout->addStretch();
+
+    CompletionAction selectedAction = CompletionAction::Stay;
+
+    QPushButton *stayButton = new QPushButton(isTemporaryTestLevel
+                                                  ? QStringLiteral("关闭结果")
+                                                  : QStringLiteral("停留查看"), &dialog);
+    QPushButton *restartButton = new QPushButton(isTemporaryTestLevel
+                                                     ? QStringLiteral("重新测试")
+                                                     : QStringLiteral("重玩本关"), &dialog);
+
+    stayButton->setMinimumHeight(34);
+    restartButton->setMinimumHeight(34);
+
+    buttonLayout->addWidget(stayButton);
+    buttonLayout->addWidget(restartButton);
+
+    QObject::connect(stayButton, &QPushButton::clicked, &dialog, [&]() {
+        selectedAction = CompletionAction::Stay;
+        dialog.accept();
+    });
+
+    QObject::connect(restartButton, &QPushButton::clicked, &dialog, [&]() {
+        selectedAction = CompletionAction::Restart;
+        dialog.accept();
+    });
+
+    QPushButton *nextButton = nullptr;
+    if (hasNextLevel) {
+        nextButton = new QPushButton(QStringLiteral("下一关"), &dialog);
+        nextButton->setMinimumHeight(34);
+        nextButton->setDefault(true);
+        buttonLayout->addWidget(nextButton);
+
+        QObject::connect(nextButton, &QPushButton::clicked, &dialog, [&]() {
+            selectedAction = CompletionAction::Next;
+            dialog.accept();
+        });
+    } else {
+        restartButton->setDefault(true);
+    }
+
+    mainLayout->addLayout(buttonLayout);
+
+    dialog.setStyleSheet(QStringLiteral(
+        "QDialog { background: #0f1421; }"
+        "QPushButton { padding: 7px 16px; border-radius: 6px; background: #38415f; color: #f8f8f2; }"
+        "QPushButton:hover { background: #4a567c; }"
+        "QPushButton:default { background: #4b6cff; }"
+    ));
+
+    dialog.exec();
+
+    return selectedAction;
 }
 
 void GameScene::applyPortalEffect(QChar currentTile)

@@ -2,6 +2,7 @@
 #include "tiledefs.h"
 
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
@@ -12,6 +13,7 @@
 #include <QJsonParseError>
 #include <QSet>
 #include <QSaveFile>
+#include <QRegularExpression>
 
 LevelManager::LevelManager()
 {
@@ -326,6 +328,76 @@ QString LevelManager::customLevelFolderPath() const
 {
     return levelFolderPath("custom_levels");
 }
+
+QString LevelManager::safeLevelFileName(const QString &name) const
+{
+    QString fileName = name.trimmed();
+
+    if (fileName.isEmpty()) {
+        fileName = QStringLiteral("custom_level_%1")
+                       .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss")));
+    }
+
+    fileName.replace(QRegularExpression(QStringLiteral("[\\/:*?\"<>|]")), QStringLiteral("_"));
+    fileName.replace(QRegularExpression(QStringLiteral("\\s+")), QStringLiteral("_"));
+
+    if (!fileName.endsWith(QStringLiteral(".json"), Qt::CaseInsensitive)) {
+        fileName += QStringLiteral(".json");
+    }
+
+    return fileName;
+}
+
+QString LevelManager::customLevelFilePathForName(const QString &levelName) const
+{
+    return QDir(customLevelFolderPath()).filePath(safeLevelFileName(levelName));
+}
+
+bool LevelManager::deleteCustomLevelFile(const Level &level, QString *errorMessage) const
+{
+    if (!level.isCustomLevel) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QStringLiteral("只能删除 custom_levels 文件夹中的自定义关卡");
+        }
+        return false;
+    }
+
+    QString filePath = level.sourceFilePath;
+    if (filePath.trimmed().isEmpty()) {
+        filePath = customLevelFilePathForName(level.name);
+    }
+
+    if (filePath.trimmed().isEmpty()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QStringLiteral("找不到该自定义关卡对应的文件路径");
+        }
+        return false;
+    }
+
+    if (!isFileInFolder(filePath, customLevelFolderPath())) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QStringLiteral("拒绝删除 custom_levels 文件夹之外的文件：%1").arg(filePath);
+        }
+        return false;
+    }
+
+    QFile file(filePath);
+    if (!file.exists()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QStringLiteral("关卡文件不存在：%1").arg(filePath);
+        }
+        return false;
+    }
+
+    if (!file.remove()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QStringLiteral("删除文件失败：%1").arg(file.errorString());
+        }
+        return false;
+    }
+
+    return true;
+}
 int LevelManager::loadLevelsFromFolder(const QString &folderPath, bool isCustomLevel)
 {
     QDir dir(folderPath);
@@ -534,7 +606,8 @@ bool LevelManager::readLevelFromFile(const QString &filePath,
         mapData,
         targetReverseCount,
         editablePoints,
-        customLevel
+        customLevel,
+        QFileInfo(filePath).absoluteFilePath()
         );
 
     if (!validateLevel(loadedLevel, errorMessage)) {
