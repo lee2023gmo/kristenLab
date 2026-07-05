@@ -238,6 +238,9 @@ void GameScene::drawMap()
     static QPixmap trampolineLeftPixmap(":/images/resources/images/trampoline_left.png");
     static QPixmap laserPixmap(":/images/resources/images/laser.png");
     static QPixmap laserInactivePixmap(":/images/resources/images/laser_inactive.png");
+    static QPixmap keyPixmap(":/images/resources/images/key.png");
+    static QPixmap doorPixmap(":/images/resources/images/door.png");
+    static QPixmap portalPixmap(":/images/resources/images/portal.png");
 
     for (int row = 0; row < rows; ++row) {
         for (int col = 0; col < cols; ++col) {
@@ -420,35 +423,46 @@ void GameScene::drawMap()
                             QPen(QColor("#27304a")), QBrush(QColor("#10131f")));
                 }
 
-                QRectF keyBody(x + 12, y + 9, TILE_SIZE - 24, TILE_SIZE - 18);
-                QGraphicsEllipseItem *keyItem = addEllipse(
-                    keyBody,
-                    QPen(QColor("#f8fafc"), 2),
-                    QBrush(QColor("#facc15"))
-                    );
-                keyItem->setZValue(7);
-
-                QRectF keyHandle(x + TILE_SIZE / 2.0 - 2, y + TILE_SIZE / 2.0,
-                                 4, TILE_SIZE / 2.0 - 8);
-                QGraphicsRectItem *handleItem = addRect(
-                    keyHandle,
-                    QPen(QColor("#f8fafc"), 1),
-                    QBrush(QColor("#facc15"))
-                    );
-                handleItem->setParentItem(keyItem);
-
-                QGraphicsSimpleTextItem *keyText = addSimpleText("K", QFont("Arial", 10, QFont::Bold));
-                keyText->setBrush(QColor("#111827"));
-                keyText->setZValue(8);
-                QRectF textRect = keyText->boundingRect();
-                keyText->setPos(
-                    x + TILE_SIZE / 2.0 - textRect.width() / 2.0,
-                    y + TILE_SIZE / 2.0 - textRect.height() / 2.0
-                    );
-                keyText->setParentItem(keyItem);
-
                 QString key = gridKey(QPoint(col, row));
-                keyItems.insert(key, keyItem);
+
+                if (!keyPixmap.isNull()) {
+                    QGraphicsPixmapItem *keyItem = addPixmap(keyPixmap.scaled(
+                        TILE_SIZE, TILE_SIZE,
+                        Qt::IgnoreAspectRatio,
+                        Qt::SmoothTransformation));
+                    keyItem->setPos(x, y);
+                    keyItem->setZValue(7);
+                    keyItems.insert(key, keyItem);
+                } else {
+                    QRectF keyBody(x + 12, y + 9, TILE_SIZE - 24, TILE_SIZE - 18);
+                    QGraphicsEllipseItem *keyItem = addEllipse(
+                        keyBody,
+                        QPen(QColor("#f8fafc"), 2),
+                        QBrush(QColor("#facc15"))
+                        );
+                    keyItem->setZValue(7);
+
+                    QRectF keyHandle(x + TILE_SIZE / 2.0 - 2, y + TILE_SIZE / 2.0,
+                                     4, TILE_SIZE / 2.0 - 8);
+                    QGraphicsRectItem *handleItem = addRect(
+                        keyHandle,
+                        QPen(QColor("#f8fafc"), 1),
+                        QBrush(QColor("#facc15"))
+                        );
+                    handleItem->setParentItem(keyItem);
+
+                    QGraphicsSimpleTextItem *keyText = addSimpleText("K", QFont("Arial", 10, QFont::Bold));
+                    keyText->setBrush(QColor("#111827"));
+                    keyText->setZValue(8);
+                    QRectF textRect = keyText->boundingRect();
+                    keyText->setPos(
+                        x + TILE_SIZE / 2.0 - textRect.width() / 2.0,
+                        y + TILE_SIZE / 2.0 - textRect.height() / 2.0
+                        );
+                    keyText->setParentItem(keyItem);
+
+                    keyItems.insert(key, keyItem);
+                }
             }
             else if (TileDefs::isDoor(tile)) {
                 // 门底下画空地。未拾取钥匙时门阻挡；拾取钥匙后门变淡并可通过。
@@ -464,26 +478,38 @@ void GameScene::drawMap()
                             QPen(QColor("#27304a")), QBrush(QColor("#10131f")));
                 }
 
-                QRectF doorRect(x + 6, y + 4, TILE_SIZE - 12, TILE_SIZE - 8);
-                QGraphicsRectItem *doorItem = addRect(
-                    doorRect,
-                    QPen(QColor("#f59e0b"), 2),
-                    QBrush(QColor("#92400e"))
-                    );
-                doorItem->setZValue(8);
-
-                QGraphicsSimpleTextItem *doorText = addSimpleText("A", QFont("Arial", 11, QFont::Bold));
-                doorText->setBrush(QColor("#ffffff"));
-                doorText->setZValue(9);
-                QRectF textRect = doorText->boundingRect();
-                doorText->setPos(
-                    x + TILE_SIZE / 2.0 - textRect.width() / 2.0,
-                    y + TILE_SIZE / 2.0 - textRect.height() / 2.0
-                    );
-
                 QString key = gridKey(QPoint(col, row));
-                doorItems.insert(key, doorItem);
-                doorLabelItems.insert(key, doorText);
+
+                if (!doorPixmap.isNull()) {
+                    QGraphicsPixmapItem *doorItem = addPixmap(doorPixmap.scaled(
+                        TILE_SIZE, TILE_SIZE,
+                        Qt::IgnoreAspectRatio,
+                        Qt::SmoothTransformation));
+                    doorItem->setPos(x, y);
+                    doorItem->setZValue(8);
+                    doorItems.insert(key, doorItem);
+                    doorLabelItems.insert(key, nullptr);
+                } else {
+                    QRectF doorRect(x + 6, y + 4, TILE_SIZE - 12, TILE_SIZE - 8);
+                    QGraphicsRectItem *doorItem = addRect(
+                        doorRect,
+                        QPen(QColor("#f59e0b"), 2),
+                        QBrush(QColor("#92400e"))
+                        );
+                    doorItem->setZValue(8);
+
+                    QGraphicsSimpleTextItem *doorText = addSimpleText("A", QFont("Arial", 11, QFont::Bold));
+                    doorText->setBrush(QColor("#ffffff"));
+                    doorText->setZValue(9);
+                    QRectF textRect = doorText->boundingRect();
+                    doorText->setPos(
+                        x + TILE_SIZE / 2.0 - textRect.width() / 2.0,
+                        y + TILE_SIZE / 2.0 - textRect.height() / 2.0
+                        );
+
+                    doorItems.insert(key, doorItem);
+                    doorLabelItems.insert(key, doorText);
+                }
             }
             else if (TileDefs::isPortal(tile)) {
                 // 传送门底下画空地，角色进入后会传送到配对传送门中心。
@@ -499,30 +525,39 @@ void GameScene::drawMap()
                             QPen(QColor("#27304a")), QBrush(QColor("#10131f")));
                 }
 
-                QRectF portalOuter(x + 5, y + 5, TILE_SIZE - 10, TILE_SIZE - 10);
-                QGraphicsEllipseItem *portalRing = addEllipse(
-                    portalOuter,
-                    QPen(QColor("#a78bfa"), 3),
-                    QBrush(QColor(76, 29, 149, 170))
-                    );
-                portalRing->setZValue(7);
+                if (!portalPixmap.isNull()) {
+                    QGraphicsPixmapItem *portalItem = addPixmap(portalPixmap.scaled(
+                        TILE_SIZE, TILE_SIZE,
+                        Qt::IgnoreAspectRatio,
+                        Qt::SmoothTransformation));
+                    portalItem->setPos(x, y);
+                    portalItem->setZValue(7);
+                } else {
+                    QRectF portalOuter(x + 5, y + 5, TILE_SIZE - 10, TILE_SIZE - 10);
+                    QGraphicsEllipseItem *portalRing = addEllipse(
+                        portalOuter,
+                        QPen(QColor("#a78bfa"), 3),
+                        QBrush(QColor(76, 29, 149, 170))
+                        );
+                    portalRing->setZValue(7);
 
-                QRectF portalInner(x + 12, y + 12, TILE_SIZE - 24, TILE_SIZE - 24);
-                QGraphicsEllipseItem *portalCore = addEllipse(
-                    portalInner,
-                    QPen(QColor("#ddd6fe"), 1),
-                    QBrush(QColor("#7c3aed"))
-                    );
-                portalCore->setZValue(8);
+                    QRectF portalInner(x + 12, y + 12, TILE_SIZE - 24, TILE_SIZE - 24);
+                    QGraphicsEllipseItem *portalCore = addEllipse(
+                        portalInner,
+                        QPen(QColor("#ddd6fe"), 1),
+                        QBrush(QColor("#7c3aed"))
+                        );
+                    portalCore->setZValue(8);
 
-                QGraphicsSimpleTextItem *portalText = addSimpleText("B", QFont("Arial", 10, QFont::Bold));
-                portalText->setBrush(QColor("#ffffff"));
-                portalText->setZValue(9);
-                QRectF textRect = portalText->boundingRect();
-                portalText->setPos(
-                    x + TILE_SIZE / 2.0 - textRect.width() / 2.0,
-                    y + TILE_SIZE / 2.0 - textRect.height() / 2.0
-                    );
+                    QGraphicsSimpleTextItem *portalText = addSimpleText("B", QFont("Arial", 10, QFont::Bold));
+                    portalText->setBrush(QColor("#ffffff"));
+                    portalText->setZValue(9);
+                    QRectF textRect = portalText->boundingRect();
+                    portalText->setPos(
+                        x + TILE_SIZE / 2.0 - textRect.width() / 2.0,
+                        y + TILE_SIZE / 2.0 - textRect.height() / 2.0
+                        );
+                }
             }
             else if (TileDefs::isTrampoline(tile)) {
                 QPixmap pixmapToUse;
