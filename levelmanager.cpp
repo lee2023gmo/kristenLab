@@ -126,6 +126,7 @@ bool LevelManager::validateLevel(const Level &level, QString *errorMessage) cons
     int endCount = 0;
     int keyCount = 0;
     int doorCount = 0;
+    int portalCount = 0;
 
     for (int row = 0; row < level.mapData.size(); ++row) {
         QString line = level.mapData[row];
@@ -168,6 +169,10 @@ bool LevelManager::validateLevel(const Level &level, QString *errorMessage) cons
             if (TileDefs::isDoor(tile)) {
                 doorCount++;
             }
+
+            if (TileDefs::isPortal(tile)) {
+                portalCount++;
+            }
         }
     }
 
@@ -195,6 +200,20 @@ bool LevelManager::validateLevel(const Level &level, QString *errorMessage) cons
     if (doorCount > 0 && keyCount == 0) {
         if (errorMessage != nullptr) {
             *errorMessage = "地图中存在门 A，但没有钥匙 K，门将无法打开";
+        }
+        return false;
+    }
+
+    if (portalCount == 1) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "地图中只有 1 个传送门 B。传送门必须成对出现";
+        }
+        return false;
+    }
+
+    if (portalCount % 2 != 0) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QString("传送门 B 的数量必须是偶数，当前有 %1 个。传送门会按从上到下、从左到右的顺序两两配对").arg(portalCount);
         }
         return false;
     }
@@ -247,6 +266,7 @@ bool LevelManager::validateLevel(const Level &level, QString *errorMessage) cons
             || TileDefs::isData(tile)
             || TileDefs::isKey(tile)
             || TileDefs::isDoor(tile)
+            || TileDefs::isPortal(tile)
             || TileDefs::isBounce(tile)
             || TileDefs::isConveyor(tile)) {
 

@@ -124,6 +124,8 @@ private:
     QMap<QString, QGraphicsItem *> keyItems;
     QMap<QString, QGraphicsItem *> doorItems;
     QMap<QString, QGraphicsItem *> doorLabelItems;
+    QMap<QString, QPoint> portalPairTargets;
+    QString teleportLockPortalKey;
     QMap<QString, QGraphicsItem *> laserItems;
     QMap<QString, QGraphicsItem *> laserLabelItems;
     QPointF lastNonLaserBallPosition;
@@ -156,6 +158,7 @@ private:
     bool isWallAt(const QPointF &scenePos) const;
     bool isDoorOpen() const;
     bool isClosedDoorAt(const QPointF &scenePos) const;
+    bool isPortalAt(const QPointF &scenePos) const;
     bool isActiveLaserAt(const QPointF &scenePos) const;
     bool isBlockingAt(const QPointF &scenePos) const;
     bool canBallMoveTo(const QPointF &nextPosition) const;
@@ -198,6 +201,9 @@ private:
     void applyBounceEffect(QChar currentTile);
     void applyTrampolineEffect(QChar currentTile);
     void applyConveyorEffect(QChar currentTile);
+    void applyPortalEffect(QChar currentTile);
+    void rebuildPortalPairs();
+    bool tryTeleportAtCurrentPosition();
 
     void adjustVelocityToSpeed(int newSpeed);
 

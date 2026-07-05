@@ -127,6 +127,8 @@ void GameScene::applyLevelData(const Level &currentLevel)
     totalDataFragmentCount = countDataFragments();
     collectedKeyCount = 0;
     totalKeyCount = countKeys();
+    teleportLockPortalKey.clear();
+    rebuildPortalPairs();
 
     elapsedMs = 0;
     wasOnTrampoline = false;
@@ -450,6 +452,45 @@ void GameScene::drawMap()
                 QString key = gridKey(QPoint(col, row));
                 doorItems.insert(key, doorItem);
                 doorLabelItems.insert(key, doorText);
+            }
+            else if (TileDefs::isPortal(tile)) {
+                // 传送门底下画空地，角色进入后会传送到配对传送门中心。
+                if (!emptyPixmap.isNull()) {
+                    QGraphicsPixmapItem *background = addPixmap(emptyPixmap.scaled(
+                        TILE_SIZE, TILE_SIZE,
+                        Qt::IgnoreAspectRatio,
+                        Qt::SmoothTransformation));
+                    background->setPos(x, y);
+                    background->setZValue(0);
+                } else {
+                    addRect(x, y, TILE_SIZE, TILE_SIZE,
+                            QPen(QColor("#27304a")), QBrush(QColor("#10131f")));
+                }
+
+                QRectF portalOuter(x + 5, y + 5, TILE_SIZE - 10, TILE_SIZE - 10);
+                QGraphicsEllipseItem *portalRing = addEllipse(
+                    portalOuter,
+                    QPen(QColor("#a78bfa"), 3),
+                    QBrush(QColor(76, 29, 149, 170))
+                    );
+                portalRing->setZValue(7);
+
+                QRectF portalInner(x + 12, y + 12, TILE_SIZE - 24, TILE_SIZE - 24);
+                QGraphicsEllipseItem *portalCore = addEllipse(
+                    portalInner,
+                    QPen(QColor("#ddd6fe"), 1),
+                    QBrush(QColor("#7c3aed"))
+                    );
+                portalCore->setZValue(8);
+
+                QGraphicsSimpleTextItem *portalText = addSimpleText("B", QFont("Arial", 10, QFont::Bold));
+                portalText->setBrush(QColor("#ffffff"));
+                portalText->setZValue(9);
+                QRectF textRect = portalText->boundingRect();
+                portalText->setPos(
+                    x + TILE_SIZE / 2.0 - textRect.width() / 2.0,
+                    y + TILE_SIZE / 2.0 - textRect.height() / 2.0
+                    );
             }
             else if (TileDefs::isTrampoline(tile)) {
                 QPixmap pixmapToUse;
@@ -1288,6 +1329,11 @@ bool GameScene::isClosedDoorAt(const QPointF &scenePos) const
     return TileDefs::isDoor(tileAtScenePos(scenePos)) && !isDoorOpen();
 }
 
+bool GameScene::isPortalAt(const QPointF &scenePos) const
+{
+    return TileDefs::isPortal(tileAtScenePos(scenePos));
+}
+
 bool GameScene::isLaserActive() const
 {
     const int cycleMs = LASER_ACTIVE_MS + LASER_INACTIVE_MS;
@@ -1998,6 +2044,78 @@ void GameScene::handleVictory()
     }
 }
 
+void GameScene::applyPortalEffect(QChar currentTile)
+{
+    if (!TileDefs::isPortal(currentTile)) {
+        // 只有离开传送门格后，才解除目标传送门锁，避免刚传过去又立即传回来。
+        if (!teleportLockPortalKey.isEmpty()) {
+            QPoint currentGridPos = gridPosAtScenePos(ball.position);
+            if (gridKey(currentGridPos) != teleportLockPortalKey) {
+                teleportLockPortalKey.clear();
+            }
+        }
+        return;
+    }
+
+    tryTeleportAtCurrentPosition();
+}
+
+void GameScene::rebuildPortalPairs()
+{
+    portalPairTargets.clear();
+
+    QVector<QPoint> portals;
+
+    for (int row = 0; row < mapData.size(); ++row) {
+        for (int col = 0; col < mapData[row].size(); ++col) {
+            if (TileDefs::isPortal(mapData[row][col])) {
+                portals.append(QPoint(col, row));
+            }
+        }
+    }
+
+    // 传送门按读取顺序两两配对：第 1 个 <-> 第 2 个，第 3 个 <-> 第 4 个，以此类推。
+    for (int i = 0; i + 1 < portals.size(); i += 2) {
+        const QPoint first = portals[i];
+        const QPoint second = portals[i + 1];
+        portalPairTargets.insert(gridKey(first), second);
+        portalPairTargets.insert(gridKey(second), first);
+    }
+}
+
+bool GameScene::tryTeleportAtCurrentPosition()
+{
+    QPoint currentGridPos = gridPosAtScenePos(ball.position);
+    const QString currentKey = gridKey(currentGridPos);
+
+    if (currentKey == teleportLockPortalKey) {
+        return false;
+    }
+
+    if (!portalPairTargets.contains(currentKey)) {
+        return false;
+    }
+
+    const QPoint targetGridPos = portalPairTargets.value(currentKey);
+
+    if (!isGridPosInMap(targetGridPos)) {
+        return false;
+    }
+
+    const QPointF targetPosition = gridCenterToScenePos(targetGridPos);
+
+    if (!canBallMoveTo(targetPosition)) {
+        return false;
+    }
+
+    ball.setPosition(targetPosition);
+    lastNonLaserBallPosition = targetPosition;
+    teleportLockPortalKey = gridKey(targetGridPos);
+
+    qDebug() << "Portal teleport:" << currentGridPos << "->" << targetGridPos;
+    return true;
+}
+
 void GameScene::adjustVelocityToSpeed(int newSpeed)
 {
     moveSpeed = newSpeed;
@@ -2030,6 +2148,7 @@ void GameScene::applyTileEffects()
 
     // 位置类机关。
     applyConveyorEffect(currentTile);
+    applyPortalEffect(currentTile);
 }
 void GameScene::applySpeedEffect(QChar currentTile)
 {
@@ -2356,6 +2475,8 @@ void GameScene::resetRuntimeStateForCurrentMap()
     totalDataFragmentCount = countDataFragments();
     collectedKeyCount = 0;
     totalKeyCount = countKeys();
+    teleportLockPortalKey.clear();
+    rebuildPortalPairs();
 
     elapsedMs = 0;
     gameEnded = false;

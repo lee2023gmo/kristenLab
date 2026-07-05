@@ -98,6 +98,11 @@ inline bool isDoor(QChar tile)
     return tile == Door;
 }
 
+inline bool isPortal(QChar tile)
+{
+    return tile == Portal;
+}
+
 inline bool isTrampoline(QChar tile)
 {
     return tile == TrampolineUpRight
@@ -200,6 +205,9 @@ inline QString nameOf(QChar tile)
     if (tile == Door) {
         return "门";
     }
+    if (tile == Portal) {
+        return "传送门";
+    }
     if (tile == TrampolineUpRight) {
         return "蹦床↗";
     }
@@ -235,6 +243,7 @@ inline bool isKnownTile(QChar tile)
            || tile == Laser
            || tile == Key
            || tile == Door
+           || tile == Portal
            || tile == TrampolineUpRight
            || tile == TrampolineUpLeft
            || tile == TrampolineDownRight

@@ -256,6 +256,7 @@ void LevelEditorDialog::setupUi()
     tileComboBox->addItem("激光门 L", QString(TileDefs::Laser));
     tileComboBox->addItem("钥匙 K", QString(TileDefs::Key));
     tileComboBox->addItem("门 A", QString(TileDefs::Door));
+    tileComboBox->addItem("传送门 B", QString(TileDefs::Portal));
     tileComboBox->addItem("数据碎片 *", QString(TileDefs::Data));
     tileComboBox->addItem("候选点 E", QString(EditablePointTool));
     tileComboBox->addItem("蹦床 ↗", QString(TileDefs::TrampolineUpRight));
@@ -388,6 +389,7 @@ void LevelEditorDialog::setupUi()
         "右键拖动：擦除为空地\n"
         "Ctrl+Z：撤销，Ctrl+Y：重做\n"
         "测试当前关卡：不保存，直接进入游戏试玩\n"
+        "传送门 B：按从上到下、从左到右两两配对\n"
         "双击格子：擦除为空地\n"
         "缩小地图：适合 150×150 大图\n横向/纵向滚动条：浏览边角\n"
         "还原缩放：恢复默认格子大小\n"
@@ -924,7 +926,7 @@ void LevelEditorDialog::updateCellStyle(int row, int col)
 
     int fontSize = qBound(4, mapCellSize / 2, 11);
 
-    if (TileDefs::isSlow(tile) || TileDefs::isEnd(tile) || TileDefs::isDoor(tile)) {
+    if (TileDefs::isSlow(tile) || TileDefs::isEnd(tile) || TileDefs::isDoor(tile) || TileDefs::isPortal(tile)) {
         fontSize = qBound(4, mapCellSize / 3, 8);
     }
 
@@ -1052,6 +1054,10 @@ QString LevelEditorDialog::tileDisplayText(QChar tile) const
         return "A";
     }
 
+    if (TileDefs::isPortal(tile)) {
+        return "B";
+    }
+
     if (TileDefs::isData(tile)) {
         return "*";
     }
@@ -1122,6 +1128,10 @@ QColor LevelEditorDialog::tileBackgroundColor(QChar tile) const
         return QColor("#92400e");
     }
 
+    if (TileDefs::isPortal(tile)) {
+        return QColor("#6d28d9");
+    }
+
     if (TileDefs::isData(tile)) {
         return QColor("#00f5d4");
     }
@@ -1147,7 +1157,7 @@ QColor LevelEditorDialog::tileTextColor(QChar tile) const
         return QColor("#10131f");
     }
 
-    if (TileDefs::isLaser(tile)) {
+    if (TileDefs::isLaser(tile) || TileDefs::isPortal(tile)) {
         return QColor("#ffffff");
     }
 
@@ -1212,6 +1222,7 @@ bool LevelEditorDialog::validateMapData(const QStringList &mapData, QString *err
     int endCount = 0;
     int keyCount = 0;
     int doorCount = 0;
+    int portalCount = 0;
 
     for (int row = 0; row < mapData.size(); ++row) {
         QString line = mapData[row];
@@ -1254,6 +1265,10 @@ bool LevelEditorDialog::validateMapData(const QStringList &mapData, QString *err
             if (TileDefs::isDoor(tile)) {
                 doorCount++;
             }
+
+            if (TileDefs::isPortal(tile)) {
+                portalCount++;
+            }
         }
     }
 
@@ -1281,6 +1296,20 @@ bool LevelEditorDialog::validateMapData(const QStringList &mapData, QString *err
     if (doorCount > 0 && keyCount == 0) {
         if (errorMessage != nullptr) {
             *errorMessage = "地图中存在门 A，但没有钥匙 K。请至少放置一把钥匙，避免门永远无法打开。";
+        }
+        return false;
+    }
+
+    if (portalCount == 1) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "地图中只有 1 个传送门 B。传送门必须成对出现。";
+        }
+        return false;
+    }
+
+    if (portalCount % 2 != 0) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QString("传送门 B 的数量必须是偶数，当前有 %1 个。传送门会按从上到下、从左到右的顺序两两配对。").arg(portalCount);
         }
         return false;
     }
@@ -1716,6 +1745,7 @@ bool LevelEditorDialog::canBeEditablePoint(int row, int col, QString *errorMessa
         || TileDefs::isData(tile)
         || TileDefs::isKey(tile)
         || TileDefs::isDoor(tile)
+        || TileDefs::isPortal(tile)
         || TileDefs::isBounce(tile)
         || TileDefs::isConveyor(tile)) {
         if (errorMessage != nullptr) {
@@ -1928,6 +1958,7 @@ bool LevelEditorDialog::validateEditablePoints(const QStringList &mapData,
             || TileDefs::isData(tile)
             || TileDefs::isKey(tile)
             || TileDefs::isDoor(tile)
+            || TileDefs::isPortal(tile)
             || TileDefs::isBounce(tile)
             || TileDefs::isConveyor(tile)) {
             if (errorMessage != nullptr) {
