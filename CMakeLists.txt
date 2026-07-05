@@ -37,9 +37,6 @@ set(PROJECT_SOURCES
     levelmanager.cpp
     levelmanager.h
 
-    levelvalidator.cpp
-    levelvalidator.h
-
     constants.h
     tiledefs.h
 

@@ -1,6 +1,5 @@
 #include <algorithm>
 #include "leveleditordialog.h"
-#include "levelvalidator.h"
 #include "tiledefs.h"
 
 #include <QAbstractItemView>
@@ -34,6 +33,8 @@
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QScrollArea>
+#include <QShortcut>
 #include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QSpinBox>
@@ -78,6 +79,10 @@ LevelEditorDialog::LevelEditorDialog(QWidget *parent)
     , validateButton(nullptr)
     , saveButton(nullptr)
     , closeButton(nullptr)
+    , undoButton(nullptr)
+    , redoButton(nullptr)
+    , isRestoringHistory(false)
+    , isDrawingHistoryCaptured(false)
 {
     setupUi();
     setupConnections();
@@ -116,6 +121,11 @@ bool LevelEditorDialog::eventFilter(QObject *watched, QEvent *event)
             QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
 
             if (mouseEvent->button() == Qt::LeftButton) {
+                if (!isDrawingHistoryCaptured) {
+                    recordUndoSnapshot();
+                    isDrawingHistoryCaptured = true;
+                }
+
                 isPainting = true;
                 isErasing = false;
                 paintCellAtViewportPosition(mouseEvent->pos(), currentTile);
@@ -123,6 +133,11 @@ bool LevelEditorDialog::eventFilter(QObject *watched, QEvent *event)
             }
 
             if (mouseEvent->button() == Qt::RightButton) {
+                if (!isDrawingHistoryCaptured) {
+                    recordUndoSnapshot();
+                    isDrawingHistoryCaptured = true;
+                }
+
                 isPainting = false;
                 isErasing = true;
                 paintCellAtViewportPosition(mouseEvent->pos(), TileDefs::Empty);
@@ -145,10 +160,12 @@ bool LevelEditorDialog::eventFilter(QObject *watched, QEvent *event)
         else if (event->type() == QEvent::MouseButtonRelease) {
             isPainting = false;
             isErasing = false;
+            isDrawingHistoryCaptured = false;
         }
         else if (event->type() == QEvent::Leave) {
             isPainting = false;
             isErasing = false;
+            isDrawingHistoryCaptured = false;
         }
     }
 
@@ -197,9 +214,19 @@ void LevelEditorDialog::setupUi()
     contentLayout->setSpacing(14);
     mainLayout->addLayout(contentLayout, 1);
 
-    QFrame *infoFrame = new QFrame(this);
+    QScrollArea *sideScrollArea = new QScrollArea(this);
+    sideScrollArea->setObjectName("sideScrollArea");
+    sideScrollArea->setWidgetResizable(true);
+    sideScrollArea->setFrameShape(QFrame::NoFrame);
+    sideScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    sideScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    sideScrollArea->setFixedWidth(370);
+    sideScrollArea->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+
+    QFrame *infoFrame = new QFrame();
     infoFrame->setObjectName("infoFrame");
-    infoFrame->setFixedWidth(340);
+    infoFrame->setMinimumWidth(340);
+    infoFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
 
     QVBoxLayout *sideLayout = new QVBoxLayout(infoFrame);
     sideLayout->setContentsMargins(14, 14, 14, 14);
@@ -278,6 +305,17 @@ void LevelEditorDialog::setupUi()
         "padding: 4px;"
         );
 
+    const int fieldMinHeight = 38;
+    nameEdit->setMinimumHeight(fieldMinHeight);
+    widthSpinBox->setMinimumHeight(fieldMinHeight);
+    heightSpinBox->setMinimumHeight(fieldMinHeight);
+    targetReverseSpinBox->setMinimumHeight(fieldMinHeight);
+    tileComboBox->setMinimumHeight(fieldMinHeight);
+    saveFolderComboBox->setMinimumHeight(fieldMinHeight);
+    currentToolPreviewLabel->setMinimumHeight(40);
+    zoomInfoLabel->setMinimumHeight(38);
+    editablePointInfoLabel->setMinimumHeight(38);
+
     formLayout->addRow("关卡名：", nameEdit);
     formLayout->addRow("宽度：", widthSpinBox);
     formLayout->addRow("高度：", heightSpinBox);
@@ -304,6 +342,10 @@ void LevelEditorDialog::setupUi()
     zoomOutButton = new QPushButton("缩小地图", buttonFrame);
     zoomInButton = new QPushButton("放大地图", buttonFrame);
     resetZoomButton = new QPushButton("还原缩放", buttonFrame);
+    undoButton = new QPushButton("撤销", buttonFrame);
+    redoButton = new QPushButton("重做", buttonFrame);
+    undoButton->setToolTip("撤销上一步编辑（Ctrl+Z）");
+    redoButton->setToolTip("重做刚撤销的编辑（Ctrl+Y / Ctrl+Shift+Z）");
     editablePointModeButton = new QPushButton("选择候选点工具", buttonFrame);
     clearEditablePointsButton = new QPushButton("清候选点", buttonFrame);
     importButton = new QPushButton("导入 JSON", buttonFrame);
@@ -318,6 +360,8 @@ void LevelEditorDialog::setupUi()
         zoomOutButton,
         zoomInButton,
         resetZoomButton,
+        undoButton,
+        redoButton,
         editablePointModeButton,
         clearEditablePointsButton,
         importButton,
@@ -327,7 +371,7 @@ void LevelEditorDialog::setupUi()
     };
 
     for (QPushButton *button : buttons) {
-        button->setMinimumHeight(34);
+        button->setMinimumHeight(40);
         button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     }
 
@@ -338,11 +382,13 @@ void LevelEditorDialog::setupUi()
     buttonLayout->addWidget(zoomOutButton, 2, 0);
     buttonLayout->addWidget(zoomInButton, 2, 1);
     buttonLayout->addWidget(resetZoomButton, 3, 0, 1, 2);
-    buttonLayout->addWidget(editablePointModeButton, 4, 0, 1, 2);
-    buttonLayout->addWidget(clearEditablePointsButton, 5, 0, 1, 2);
-    buttonLayout->addWidget(validateButton, 6, 0);
-    buttonLayout->addWidget(saveButton, 6, 1);
-    buttonLayout->addWidget(closeButton, 7, 0, 1, 2);
+    buttonLayout->addWidget(undoButton, 4, 0);
+    buttonLayout->addWidget(redoButton, 4, 1);
+    buttonLayout->addWidget(editablePointModeButton, 5, 0, 1, 2);
+    buttonLayout->addWidget(clearEditablePointsButton, 6, 0, 1, 2);
+    buttonLayout->addWidget(validateButton, 7, 0);
+    buttonLayout->addWidget(saveButton, 7, 1);
+    buttonLayout->addWidget(closeButton, 8, 0, 1, 2);
 
     sideLayout->addWidget(buttonFrame);
 
@@ -418,7 +464,8 @@ void LevelEditorDialog::setupUi()
     mapLayout->addWidget(mapTable, 1);
     mapLayout->addWidget(mapPreviewEdit);
 
-    contentLayout->addWidget(infoFrame);
+    sideScrollArea->setWidget(infoFrame);
+    contentLayout->addWidget(sideScrollArea);
     contentLayout->addWidget(mapFrame, 1);
 
     dragWindowHandleLabel = new QLabel("⇕ 标题栏被屏幕挡住时，可按住这里或窗口底部空白处拖动窗口", this);
@@ -441,6 +488,13 @@ void LevelEditorDialog::setupUi()
         "background-color: #151821;"
         "color: white;"
         "font-family: Microsoft YaHei;"
+        "}"
+        "QScrollArea#sideScrollArea {"
+        "background-color: transparent;"
+        "border: none;"
+        "}"
+        "QScrollArea#sideScrollArea > QWidget > QWidget {"
+        "background-color: transparent;"
         "}"
         "QFrame#infoFrame, QFrame#mapFrame, QFrame#buttonFrame {"
         "background-color: #202638;"
@@ -508,6 +562,24 @@ void LevelEditorDialog::setupConnections()
     connect(clearButton, &QPushButton::clicked,
             this, &LevelEditorDialog::clearMapToEmpty);
 
+    connect(undoButton, &QPushButton::clicked,
+            this, &LevelEditorDialog::undoEdit);
+
+    connect(redoButton, &QPushButton::clicked,
+            this, &LevelEditorDialog::redoEdit);
+
+    QShortcut *undoShortcut = new QShortcut(QKeySequence("Ctrl+Z"), this);
+    connect(undoShortcut, &QShortcut::activated,
+            this, &LevelEditorDialog::undoEdit);
+
+    QShortcut *redoShortcut = new QShortcut(QKeySequence("Ctrl+Y"), this);
+    connect(redoShortcut, &QShortcut::activated,
+            this, &LevelEditorDialog::redoEdit);
+
+    QShortcut *redoShiftShortcut = new QShortcut(QKeySequence("Ctrl+Shift+Z"), this);
+    connect(redoShiftShortcut, &QShortcut::activated,
+            this, &LevelEditorDialog::redoEdit);
+
     connect(zoomOutButton, &QPushButton::clicked,
             this, &LevelEditorDialog::zoomOutMap);
 
@@ -540,6 +612,8 @@ void LevelEditorDialog::setupConnections()
     });
 
     connect(mapTable, &QTableWidget::cellDoubleClicked, this, [this](int row, int col) {
+        recordUndoSnapshot();
+
         if (isEditablePointMode || isEditablePointTool(currentTile)) {
             removeEditablePoint(row, col);
         } else {
@@ -558,10 +632,188 @@ void LevelEditorDialog::setupConnections()
     updateCurrentToolPreview();
     updateZoomInfo();
     updateEditablePointInfo();
+    updateUndoRedoButtons();
+}
+
+LevelEditorDialog::EditorSnapshot LevelEditorDialog::createEditorSnapshot() const
+{
+    EditorSnapshot snapshot;
+    snapshot.name = nameEdit != nullptr ? nameEdit->text() : QString();
+    snapshot.width = widthSpinBox != nullptr ? widthSpinBox->value() : 5;
+    snapshot.height = heightSpinBox != nullptr ? heightSpinBox->value() : 5;
+    snapshot.targetReverseCount = targetReverseSpinBox != nullptr ? targetReverseSpinBox->value() : 0;
+    snapshot.saveFolderIndex = saveFolderComboBox != nullptr ? saveFolderComboBox->currentIndex() : 0;
+    snapshot.tileComboIndex = tileComboBox != nullptr ? tileComboBox->currentIndex() : 0;
+    snapshot.cellSize = mapCellSize;
+    snapshot.hasMap = mapTable != nullptr && mapTable->isVisible();
+
+    if (snapshot.hasMap) {
+        snapshot.mapData = buildMapDataFromTable();
+        snapshot.editablePoints = buildEditablePointsFromTable();
+    }
+
+    return snapshot;
+}
+
+void LevelEditorDialog::recordUndoSnapshot()
+{
+    if (isRestoringHistory) {
+        return;
+    }
+
+    undoStack.append(createEditorSnapshot());
+
+    const int maxHistoryCount = 80;
+    while (undoStack.size() > maxHistoryCount) {
+        undoStack.removeFirst();
+    }
+
+    redoStack.clear();
+    updateUndoRedoButtons();
+}
+
+void LevelEditorDialog::restoreEditorSnapshot(const EditorSnapshot &snapshot)
+{
+    isRestoringHistory = true;
+
+    if (nameEdit != nullptr) {
+        nameEdit->setText(snapshot.name);
+    }
+
+    if (widthSpinBox != nullptr) {
+        widthSpinBox->setValue(snapshot.width);
+    }
+
+    if (heightSpinBox != nullptr) {
+        heightSpinBox->setValue(snapshot.height);
+    }
+
+    if (targetReverseSpinBox != nullptr) {
+        targetReverseSpinBox->setValue(snapshot.targetReverseCount);
+    }
+
+    if (saveFolderComboBox != nullptr && snapshot.saveFolderIndex >= 0
+        && snapshot.saveFolderIndex < saveFolderComboBox->count()) {
+        saveFolderComboBox->setCurrentIndex(snapshot.saveFolderIndex);
+    }
+
+    if (tileComboBox != nullptr && snapshot.tileComboIndex >= 0
+        && snapshot.tileComboIndex < tileComboBox->count()) {
+        tileComboBox->setCurrentIndex(snapshot.tileComboIndex);
+    }
+
+    currentTile = currentTileFromCombo();
+    isEditablePointMode = false;
+    mapCellSize = qBound(6, snapshot.cellSize, 60);
+
+    QSignalBlocker blocker(mapTable);
+    mapTable->setUpdatesEnabled(false);
+    isBulkUpdating = true;
+    editablePointKeys.clear();
+
+    if (!snapshot.hasMap || snapshot.mapData.isEmpty()) {
+        mapTable->clear();
+        mapTable->setRowCount(0);
+        mapTable->setColumnCount(0);
+        mapTable->setVisible(false);
+        mapPreviewEdit->clear();
+        mapPreviewEdit->setVisible(false);
+        mapPlaceholderLabel->setVisible(true);
+    } else {
+        const int rowCount = snapshot.mapData.size();
+        const int columnCount = snapshot.mapData[0].size();
+
+        mapTable->clear();
+        mapTable->setRowCount(rowCount);
+        mapTable->setColumnCount(columnCount);
+
+        for (int col = 0; col < columnCount; ++col) {
+            mapTable->setColumnWidth(col, mapCellSize);
+        }
+
+        for (int row = 0; row < rowCount; ++row) {
+            mapTable->setRowHeight(row, mapCellSize);
+
+            for (int col = 0; col < columnCount; ++col) {
+                QTableWidgetItem *item = new QTableWidgetItem();
+                item->setTextAlignment(Qt::AlignCenter);
+                item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+                mapTable->setItem(row, col, item);
+                setCellTile(row, col, snapshot.mapData[row][col]);
+            }
+        }
+
+        for (const QPoint &point : snapshot.editablePoints) {
+            if (point.y() >= 0 && point.y() < rowCount
+                && point.x() >= 0 && point.x() < columnCount) {
+                editablePointKeys.insert(editablePointKey(point.y(), point.x()));
+            }
+        }
+
+        mapPlaceholderLabel->setVisible(false);
+        mapTable->setVisible(true);
+        mapPreviewEdit->setVisible(true);
+    }
+
+    isBulkUpdating = false;
+    mapTable->setUpdatesEnabled(true);
+
+    refreshAllCellStyles();
+    updateMapPreview();
+    updateCurrentToolPreview();
+    updateEditablePointInfo();
+    updateZoomInfo();
+    adjustEditorSizeToMap();
+
+    isRestoringHistory = false;
+}
+
+void LevelEditorDialog::clearHistory()
+{
+    undoStack.clear();
+    redoStack.clear();
+    updateUndoRedoButtons();
+}
+
+void LevelEditorDialog::updateUndoRedoButtons()
+{
+    if (undoButton != nullptr) {
+        undoButton->setEnabled(!undoStack.isEmpty());
+    }
+
+    if (redoButton != nullptr) {
+        redoButton->setEnabled(!redoStack.isEmpty());
+    }
+}
+
+void LevelEditorDialog::undoEdit()
+{
+    if (undoStack.isEmpty()) {
+        return;
+    }
+
+    redoStack.append(createEditorSnapshot());
+    EditorSnapshot snapshot = undoStack.takeLast();
+    restoreEditorSnapshot(snapshot);
+    updateUndoRedoButtons();
+}
+
+void LevelEditorDialog::redoEdit()
+{
+    if (redoStack.isEmpty()) {
+        return;
+    }
+
+    undoStack.append(createEditorSnapshot());
+    EditorSnapshot snapshot = redoStack.takeLast();
+    restoreEditorSnapshot(snapshot);
+    updateUndoRedoButtons();
 }
 
 void LevelEditorDialog::generateMapTable()
 {
+    recordUndoSnapshot();
+
     const int columnCount = widthSpinBox->value();
     const int rowCount = heightSpinBox->value();
 
@@ -969,6 +1221,100 @@ QStringList LevelEditorDialog::buildMapDataFromTable() const
 }
 
 
+bool LevelEditorDialog::validateMapData(const QStringList &mapData, QString *errorMessage) const
+{
+    if (mapData.isEmpty()) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "地图不能为空。";
+        }
+        return false;
+    }
+
+    int expectedColumnCount = mapData[0].size();
+
+    if (expectedColumnCount == 0) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "地图第一行不能为空。";
+        }
+        return false;
+    }
+
+    if (expectedColumnCount < 5 || expectedColumnCount > 150) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QString("地图宽度必须在 5 到 150 之间，当前是 %1。").arg(expectedColumnCount);
+        }
+        return false;
+    }
+
+    if (mapData.size() < 5 || mapData.size() > 150) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QString("地图高度必须在 5 到 150 之间，当前是 %1。").arg(mapData.size());
+        }
+        return false;
+    }
+
+    int startCount = 0;
+    int endCount = 0;
+
+    for (int row = 0; row < mapData.size(); ++row) {
+        QString line = mapData[row];
+
+        if (line.size() != expectedColumnCount) {
+            if (errorMessage != nullptr) {
+                *errorMessage = QString("第 %1 行长度不一致，应该是 %2，实际是 %3。")
+                                    .arg(row + 1)
+                                    .arg(expectedColumnCount)
+                                    .arg(line.size());
+            }
+            return false;
+        }
+
+        for (int col = 0; col < line.size(); ++col) {
+            QChar tile = line[col];
+
+            if (!TileDefs::isKnownTile(tile)) {
+                if (errorMessage != nullptr) {
+                    *errorMessage = QString("第 %1 行第 %2 列出现非法字符：%3。")
+                                        .arg(row + 1)
+                                        .arg(col + 1)
+                                        .arg(tile);
+                }
+                return false;
+            }
+
+            if (TileDefs::isStart(tile)) {
+                startCount++;
+            }
+
+            if (TileDefs::isEnd(tile)) {
+                endCount++;
+            }
+        }
+    }
+
+    if (startCount == 0) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "地图缺少起点 2。请用“起点 S”工具放置一个起点。";
+        }
+        return false;
+    }
+
+    if (startCount > 1) {
+        if (errorMessage != nullptr) {
+            *errorMessage = QString("地图只能有一个起点 2，但当前有 %1 个。").arg(startCount);
+        }
+        return false;
+    }
+
+    if (endCount == 0) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "地图至少需要一个终点 3。请用“终点 END”工具放置终点。";
+        }
+        return false;
+    }
+
+    return true;
+}
 
 bool LevelEditorDialog::validateCurrentMap(QString *errorMessage) const
 {
@@ -981,13 +1327,13 @@ bool LevelEditorDialog::validateCurrentMap(QString *errorMessage) const
         return false;
     }
 
-    if (!LevelValidator::validateMapData(mapData, errorMessage, LevelValidator::editorOptions())) {
+    if (!validateMapData(mapData, errorMessage)) {
         return false;
     }
 
     QVector<QPoint> editablePoints = buildEditablePointsFromTable();
 
-    if (!LevelValidator::validateEditablePoints(mapData, editablePoints, errorMessage, LevelValidator::editorOptions())) {
+    if (!validateEditablePoints(mapData, editablePoints, errorMessage)) {
         return false;
     }
 
@@ -1042,6 +1388,8 @@ void LevelEditorDialog::addBorderWalls()
         return;
     }
 
+    recordUndoSnapshot();
+
     QSignalBlocker blocker(mapTable);
     mapTable->setUpdatesEnabled(false);
     isBulkUpdating = true;
@@ -1091,6 +1439,8 @@ void LevelEditorDialog::clearMapToEmpty()
     if (result != QMessageBox::Yes) {
         return;
     }
+
+    recordUndoSnapshot();
 
     QSignalBlocker blocker(mapTable);
     mapTable->setUpdatesEnabled(false);
@@ -1193,7 +1543,7 @@ void LevelEditorDialog::adjustEditorSizeToMap()
         availableGeometry = screen->availableGeometry();
     }
 
-    const int sidePanelWidth = 340;
+    const int sidePanelWidth = 370;
     int maxWindowWidth = 1480;
     int maxWindowHeight = 900;
 
@@ -1425,6 +1775,8 @@ void LevelEditorDialog::clearEditablePoints()
         return;
     }
 
+    recordUndoSnapshot();
+
     QVector<QPoint> oldPoints = buildEditablePointsFromTable();
     editablePointKeys.clear();
 
@@ -1529,6 +1881,62 @@ QVector<QPoint> LevelEditorDialog::buildEditablePointsFromTable() const
     return points;
 }
 
+bool LevelEditorDialog::validateEditablePoints(const QStringList &mapData,
+                                               const QVector<QPoint> &editablePoints,
+                                               QString *errorMessage) const
+{
+    QSet<QString> usedKeys;
+
+    for (const QPoint &point : editablePoints) {
+        int col = point.x();
+        int row = point.y();
+
+        if (row < 0 || row >= mapData.size()) {
+            if (errorMessage != nullptr) {
+                *errorMessage = QString("玩家编辑候选点行号越界：row=%1 col=%2").arg(row).arg(col);
+            }
+            return false;
+        }
+
+        if (col < 0 || col >= mapData[row].size()) {
+            if (errorMessage != nullptr) {
+                *errorMessage = QString("玩家编辑候选点列号越界：row=%1 col=%2").arg(row).arg(col);
+            }
+            return false;
+        }
+
+        QString key = QString("%1,%2").arg(col).arg(row);
+
+        if (usedKeys.contains(key)) {
+            if (errorMessage != nullptr) {
+                *errorMessage = QString("玩家编辑候选点重复：row=%1 col=%2").arg(row).arg(col);
+            }
+            return false;
+        }
+
+        usedKeys.insert(key);
+
+        QChar tile = mapData[row][col];
+
+        if (TileDefs::isWall(tile)
+            || TileDefs::isStart(tile)
+            || TileDefs::isEnd(tile)
+            || TileDefs::isDeath(tile)
+            || TileDefs::isData(tile)
+            || TileDefs::isBounce(tile)
+            || TileDefs::isConveyor(tile)) {
+            if (errorMessage != nullptr) {
+                *errorMessage = QString("玩家编辑候选点不能放在 %1 上：row=%2 col=%3")
+                                    .arg(TileDefs::nameOf(tile))
+                                    .arg(row)
+                                    .arg(col);
+            }
+            return false;
+        }
+    }
+
+    return true;
+}
 
 void LevelEditorDialog::loadEditablePointsToTable(const QVector<QPoint> &editablePoints)
 {
@@ -1780,6 +2188,8 @@ void LevelEditorDialog::importLevelFromJson()
         return;
     }
 
+    recordUndoSnapshot();
+
     nameEdit->setText(name);
     targetReverseSpinBox->setValue(targetReverseCount);
     loadMapDataToTable(mapData);
@@ -1879,7 +2289,7 @@ bool LevelEditorDialog::loadLevelJsonFile(const QString &filePath,
 
     QString validateError;
 
-    if (!LevelValidator::validateMapData(loadedMapData, &validateError, LevelValidator::editorOptions())) {
+    if (!validateMapData(loadedMapData, &validateError)) {
         if (errorMessage != nullptr) {
             *errorMessage = "地图数据不合法：" + validateError;
         }
@@ -1938,27 +2348,12 @@ bool LevelEditorDialog::loadLevelJsonFile(const QString &filePath,
             }
         }
 
-        if (!LevelValidator::validateEditablePoints(loadedMapData, loadedEditablePoints, &validateError, LevelValidator::editorOptions())) {
+        if (!validateEditablePoints(loadedMapData, loadedEditablePoints, &validateError)) {
             if (errorMessage != nullptr) {
                 *errorMessage = "玩家编辑候选点不合法：" + validateError;
             }
             return false;
         }
-    }
-
-    Level loadedLevelForValidation(
-        loadedName,
-        loadedMapData,
-        loadedTargetReverseCount,
-        loadedEditablePoints,
-        false
-        );
-
-    if (!LevelValidator::validateLevel(loadedLevelForValidation, &validateError, LevelValidator::editorOptions())) {
-        if (errorMessage != nullptr) {
-            *errorMessage = "关卡数据不合法：" + validateError;
-        }
-        return false;
     }
 
     if (name != nullptr) {

@@ -39,6 +39,7 @@ public:
 private:
     QVector<Level> levels;
 
+    bool validateLevel(const Level &level, QString *errorMessage = nullptr) const;
     void addLevelIfValid(const Level &level);
 
     QString levelFolderPath(const QString &folderName) const;

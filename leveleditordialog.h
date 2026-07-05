@@ -78,9 +78,39 @@ private:
     QPushButton *validateButton;
     QPushButton *saveButton;
     QPushButton *closeButton;
+    QPushButton *undoButton;
+    QPushButton *redoButton;
+
+    struct EditorSnapshot
+    {
+        QString name;
+        int width;
+        int height;
+        int targetReverseCount;
+        int saveFolderIndex;
+        int tileComboIndex;
+        int cellSize;
+        bool hasMap;
+        QStringList mapData;
+        QVector<QPoint> editablePoints;
+    };
+
+    QVector<EditorSnapshot> undoStack;
+    QVector<EditorSnapshot> redoStack;
+    bool isRestoringHistory;
+    bool isDrawingHistoryCaptured;
 
     void setupUi();
     void setupConnections();
+
+    // 关卡设计师撤销 / 重做
+    EditorSnapshot createEditorSnapshot() const;
+    void recordUndoSnapshot();
+    void restoreEditorSnapshot(const EditorSnapshot &snapshot);
+    void clearHistory();
+    void updateUndoRedoButtons();
+    void undoEdit();
+    void redoEdit();
 
     // 阶段 24：根据宽度和高度生成表格式地图
     void generateMapTable();
@@ -103,6 +133,7 @@ private:
 
     // 阶段 26：设计师模式地图校验
     QStringList buildMapDataFromTable() const;
+    bool validateMapData(const QStringList &mapData, QString *errorMessage) const;
     bool validateCurrentMap(QString *errorMessage) const;
     void validateMapByButton();
     void addBorderWalls();
@@ -128,6 +159,9 @@ private:
     void updateEditablePointInfo();
     void refreshAllCellStyles();
     QVector<QPoint> buildEditablePointsFromTable() const;
+    bool validateEditablePoints(const QStringList &mapData,
+                                const QVector<QPoint> &editablePoints,
+                                QString *errorMessage) const;
     void loadEditablePointsToTable(const QVector<QPoint> &editablePoints);
 
     void paintCellAtViewportPosition(const QPoint &position, QChar tile);
