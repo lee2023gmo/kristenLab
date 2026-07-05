@@ -1,5 +1,6 @@
 #include <algorithm>
 #include "leveleditordialog.h"
+#include "levelvalidator.h"
 #include "tiledefs.h"
 
 #include <QAbstractItemView>
@@ -968,100 +969,6 @@ QStringList LevelEditorDialog::buildMapDataFromTable() const
 }
 
 
-bool LevelEditorDialog::validateMapData(const QStringList &mapData, QString *errorMessage) const
-{
-    if (mapData.isEmpty()) {
-        if (errorMessage != nullptr) {
-            *errorMessage = "地图不能为空。";
-        }
-        return false;
-    }
-
-    int expectedColumnCount = mapData[0].size();
-
-    if (expectedColumnCount == 0) {
-        if (errorMessage != nullptr) {
-            *errorMessage = "地图第一行不能为空。";
-        }
-        return false;
-    }
-
-    if (expectedColumnCount < 5 || expectedColumnCount > 150) {
-        if (errorMessage != nullptr) {
-            *errorMessage = QString("地图宽度必须在 5 到 150 之间，当前是 %1。").arg(expectedColumnCount);
-        }
-        return false;
-    }
-
-    if (mapData.size() < 5 || mapData.size() > 150) {
-        if (errorMessage != nullptr) {
-            *errorMessage = QString("地图高度必须在 5 到 150 之间，当前是 %1。").arg(mapData.size());
-        }
-        return false;
-    }
-
-    int startCount = 0;
-    int endCount = 0;
-
-    for (int row = 0; row < mapData.size(); ++row) {
-        QString line = mapData[row];
-
-        if (line.size() != expectedColumnCount) {
-            if (errorMessage != nullptr) {
-                *errorMessage = QString("第 %1 行长度不一致，应该是 %2，实际是 %3。")
-                                    .arg(row + 1)
-                                    .arg(expectedColumnCount)
-                                    .arg(line.size());
-            }
-            return false;
-        }
-
-        for (int col = 0; col < line.size(); ++col) {
-            QChar tile = line[col];
-
-            if (!TileDefs::isKnownTile(tile)) {
-                if (errorMessage != nullptr) {
-                    *errorMessage = QString("第 %1 行第 %2 列出现非法字符：%3。")
-                                        .arg(row + 1)
-                                        .arg(col + 1)
-                                        .arg(tile);
-                }
-                return false;
-            }
-
-            if (TileDefs::isStart(tile)) {
-                startCount++;
-            }
-
-            if (TileDefs::isEnd(tile)) {
-                endCount++;
-            }
-        }
-    }
-
-    if (startCount == 0) {
-        if (errorMessage != nullptr) {
-            *errorMessage = "地图缺少起点 2。请用“起点 S”工具放置一个起点。";
-        }
-        return false;
-    }
-
-    if (startCount > 1) {
-        if (errorMessage != nullptr) {
-            *errorMessage = QString("地图只能有一个起点 2，但当前有 %1 个。").arg(startCount);
-        }
-        return false;
-    }
-
-    if (endCount == 0) {
-        if (errorMessage != nullptr) {
-            *errorMessage = "地图至少需要一个终点 3。请用“终点 END”工具放置终点。";
-        }
-        return false;
-    }
-
-    return true;
-}
 
 bool LevelEditorDialog::validateCurrentMap(QString *errorMessage) const
 {
@@ -1074,13 +981,13 @@ bool LevelEditorDialog::validateCurrentMap(QString *errorMessage) const
         return false;
     }
 
-    if (!validateMapData(mapData, errorMessage)) {
+    if (!LevelValidator::validateMapData(mapData, errorMessage, LevelValidator::editorOptions())) {
         return false;
     }
 
     QVector<QPoint> editablePoints = buildEditablePointsFromTable();
 
-    if (!validateEditablePoints(mapData, editablePoints, errorMessage)) {
+    if (!LevelValidator::validateEditablePoints(mapData, editablePoints, errorMessage, LevelValidator::editorOptions())) {
         return false;
     }
 
@@ -1622,62 +1529,6 @@ QVector<QPoint> LevelEditorDialog::buildEditablePointsFromTable() const
     return points;
 }
 
-bool LevelEditorDialog::validateEditablePoints(const QStringList &mapData,
-                                               const QVector<QPoint> &editablePoints,
-                                               QString *errorMessage) const
-{
-    QSet<QString> usedKeys;
-
-    for (const QPoint &point : editablePoints) {
-        int col = point.x();
-        int row = point.y();
-
-        if (row < 0 || row >= mapData.size()) {
-            if (errorMessage != nullptr) {
-                *errorMessage = QString("玩家编辑候选点行号越界：row=%1 col=%2").arg(row).arg(col);
-            }
-            return false;
-        }
-
-        if (col < 0 || col >= mapData[row].size()) {
-            if (errorMessage != nullptr) {
-                *errorMessage = QString("玩家编辑候选点列号越界：row=%1 col=%2").arg(row).arg(col);
-            }
-            return false;
-        }
-
-        QString key = QString("%1,%2").arg(col).arg(row);
-
-        if (usedKeys.contains(key)) {
-            if (errorMessage != nullptr) {
-                *errorMessage = QString("玩家编辑候选点重复：row=%1 col=%2").arg(row).arg(col);
-            }
-            return false;
-        }
-
-        usedKeys.insert(key);
-
-        QChar tile = mapData[row][col];
-
-        if (TileDefs::isWall(tile)
-            || TileDefs::isStart(tile)
-            || TileDefs::isEnd(tile)
-            || TileDefs::isDeath(tile)
-            || TileDefs::isData(tile)
-            || TileDefs::isBounce(tile)
-            || TileDefs::isConveyor(tile)) {
-            if (errorMessage != nullptr) {
-                *errorMessage = QString("玩家编辑候选点不能放在 %1 上：row=%2 col=%3")
-                                    .arg(TileDefs::nameOf(tile))
-                                    .arg(row)
-                                    .arg(col);
-            }
-            return false;
-        }
-    }
-
-    return true;
-}
 
 void LevelEditorDialog::loadEditablePointsToTable(const QVector<QPoint> &editablePoints)
 {
@@ -2028,7 +1879,7 @@ bool LevelEditorDialog::loadLevelJsonFile(const QString &filePath,
 
     QString validateError;
 
-    if (!validateMapData(loadedMapData, &validateError)) {
+    if (!LevelValidator::validateMapData(loadedMapData, &validateError, LevelValidator::editorOptions())) {
         if (errorMessage != nullptr) {
             *errorMessage = "地图数据不合法：" + validateError;
         }
@@ -2087,12 +1938,27 @@ bool LevelEditorDialog::loadLevelJsonFile(const QString &filePath,
             }
         }
 
-        if (!validateEditablePoints(loadedMapData, loadedEditablePoints, &validateError)) {
+        if (!LevelValidator::validateEditablePoints(loadedMapData, loadedEditablePoints, &validateError, LevelValidator::editorOptions())) {
             if (errorMessage != nullptr) {
                 *errorMessage = "玩家编辑候选点不合法：" + validateError;
             }
             return false;
         }
+    }
+
+    Level loadedLevelForValidation(
+        loadedName,
+        loadedMapData,
+        loadedTargetReverseCount,
+        loadedEditablePoints,
+        false
+        );
+
+    if (!LevelValidator::validateLevel(loadedLevelForValidation, &validateError, LevelValidator::editorOptions())) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "关卡数据不合法：" + validateError;
+        }
+        return false;
     }
 
     if (name != nullptr) {

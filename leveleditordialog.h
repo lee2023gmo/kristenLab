@@ -103,7 +103,6 @@ private:
 
     // 阶段 26：设计师模式地图校验
     QStringList buildMapDataFromTable() const;
-    bool validateMapData(const QStringList &mapData, QString *errorMessage) const;
     bool validateCurrentMap(QString *errorMessage) const;
     void validateMapByButton();
     void addBorderWalls();
@@ -129,9 +128,6 @@ private:
     void updateEditablePointInfo();
     void refreshAllCellStyles();
     QVector<QPoint> buildEditablePointsFromTable() const;
-    bool validateEditablePoints(const QStringList &mapData,
-                                const QVector<QPoint> &editablePoints,
-                                QString *errorMessage) const;
     void loadEditablePointsToTable(const QVector<QPoint> &editablePoints);
 
     void paintCellAtViewportPosition(const QPoint &position, QChar tile);
