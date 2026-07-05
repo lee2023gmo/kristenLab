@@ -9,6 +9,7 @@
 #include <QStringList>
 #include <QVector>
 
+#include "level.h"
 
 class QComboBox;
 class QLabel;
@@ -29,6 +30,7 @@ public:
 
 signals:
     void requestOpenLevelSelect();
+    void requestTestLevel(const Level &level);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
@@ -39,6 +41,20 @@ protected:
 
 private:
     static const QChar EditablePointTool;
+
+    struct EditorSnapshot
+    {
+        bool tableVisible = false;
+        QString levelName;
+        int width = 12;
+        int height = 8;
+        int targetReverseCount = 6;
+        int mapCellSize = 42;
+        int tileComboIndex = 0;
+        int saveFolderIndex = 0;
+        QStringList mapData;
+        QVector<QPoint> editablePoints;
+    };
 
     QLineEdit *nameEdit;
     QSpinBox *widthSpinBox;
@@ -59,14 +75,19 @@ private:
     bool isBulkUpdating;
     bool isEditablePointMode;
     bool isDraggingWindow;
+    bool isRestoringSnapshot;
     QPoint dragWindowOffset;
     QSet<QString> editablePointKeys;
+    QVector<EditorSnapshot> undoStack;
+    QVector<EditorSnapshot> redoStack;
 
     QLabel *mapPlaceholderLabel;
     QTableWidget *mapTable;
     QPlainTextEdit *mapPreviewEdit;
 
     QPushButton *generateButton;
+    QPushButton *undoButton;
+    QPushButton *redoButton;
     QPushButton *borderButton;
     QPushButton *clearButton;
     QPushButton *zoomOutButton;
@@ -76,41 +97,20 @@ private:
     QPushButton *clearEditablePointsButton;
     QPushButton *importButton;
     QPushButton *validateButton;
+    QPushButton *testButton;
     QPushButton *saveButton;
     QPushButton *closeButton;
-    QPushButton *undoButton;
-    QPushButton *redoButton;
-
-    struct EditorSnapshot
-    {
-        QString name;
-        int width;
-        int height;
-        int targetReverseCount;
-        int saveFolderIndex;
-        int tileComboIndex;
-        int cellSize;
-        bool hasMap;
-        QStringList mapData;
-        QVector<QPoint> editablePoints;
-    };
-
-    QVector<EditorSnapshot> undoStack;
-    QVector<EditorSnapshot> redoStack;
-    bool isRestoringHistory;
-    bool isDrawingHistoryCaptured;
 
     void setupUi();
     void setupConnections();
 
     // 关卡设计师撤销 / 重做
     EditorSnapshot createEditorSnapshot() const;
-    void recordUndoSnapshot();
     void restoreEditorSnapshot(const EditorSnapshot &snapshot);
-    void clearHistory();
-    void updateUndoRedoButtons();
+    void pushUndoSnapshot();
     void undoEdit();
     void redoEdit();
+    void updateUndoRedoButtons();
 
     // 阶段 24：根据宽度和高度生成表格式地图
     void generateMapTable();
@@ -136,6 +136,7 @@ private:
     bool validateMapData(const QStringList &mapData, QString *errorMessage) const;
     bool validateCurrentMap(QString *errorMessage) const;
     void validateMapByButton();
+    void testCurrentLevel();
     void addBorderWalls();
     void clearMapToEmpty();
     void updateCurrentToolPreview();

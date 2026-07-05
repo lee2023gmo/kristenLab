@@ -50,6 +50,7 @@ public:
 
     void refreshStatus();
     void loadLevelByNumber(int levelNumber);
+    void loadTemporaryLevelForTest(const Level &level);
 
     void enterEditMode();
     void startRunMode();
@@ -85,6 +86,8 @@ private:
     QStringList editMapData;
     QSet<QString> playerPlacedMechanismKeys;
     LevelManager levelManager;
+    bool isTemporaryTestLevel;
+    Level temporaryTestLevel;
     int currentLevelIndex;
 
     QStringList mapData;
@@ -106,6 +109,9 @@ private:
     int collectedDataFragmentCount;
     int totalDataFragmentCount;
 
+    int collectedKeyCount;
+    int totalKeyCount;
+
     bool isPaused;
     bool gameEnded;
     bool wasOnTrampoline;
@@ -115,6 +121,9 @@ private:
 
     QGraphicsSimpleTextItem *statusText;
     QMap<QString, QGraphicsItem *> dataFragmentItems;
+    QMap<QString, QGraphicsItem *> keyItems;
+    QMap<QString, QGraphicsItem *> doorItems;
+    QMap<QString, QGraphicsItem *> doorLabelItems;
     QMap<QString, QGraphicsItem *> laserItems;
     QMap<QString, QGraphicsItem *> laserLabelItems;
     QPointF lastNonLaserBallPosition;
@@ -124,6 +133,7 @@ private:
     QString resolveBallMoviePath() const;
 
     void loadLevel(int levelIndex);
+    void applyLevelData(const Level &currentLevel);
 
     void drawMap();
     void drawGridBackground(int rows, int cols);
@@ -144,6 +154,8 @@ private:
 
     QChar tileAtScenePos(const QPointF &scenePos) const;
     bool isWallAt(const QPointF &scenePos) const;
+    bool isDoorOpen() const;
+    bool isClosedDoorAt(const QPointF &scenePos) const;
     bool isActiveLaserAt(const QPointF &scenePos) const;
     bool isBlockingAt(const QPointF &scenePos) const;
     bool canBallMoveTo(const QPointF &nextPosition) const;
@@ -173,6 +185,7 @@ private:
 
     bool isLaserActive() const;
     void updateLaserItems();
+    void updateDoorItems();
     bool wouldCollideWithActiveLaser(const QPointF &nextPosition) const;
     void repelFromLaserCollision(const QPointF &blockedMovement);
     void rememberLastNonLaserPosition();
@@ -195,9 +208,11 @@ private:
     QString elapsedTimeText() const;
 
     int countDataFragments() const;
+    int countKeys() const;
     QPoint gridPosAtScenePos(const QPointF &scenePos) const;
     QString gridKey(const QPoint &gridPos) const;
     void collectDataFragmentAtCurrentPosition();
+    void collectKeyAtCurrentPosition();
     int calculateStars() const;
     QString starText(int stars) const;
 

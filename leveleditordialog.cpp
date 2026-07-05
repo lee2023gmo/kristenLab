@@ -18,6 +18,9 @@
 #include <QGridLayout>
 #include <QShowEvent>
 #include <QScreen>
+#include <QScrollArea>
+#include <QShortcut>
+#include <QKeySequence>
 #include <QGuiApplication>
 #include <QHeaderView>
 #include <QHBoxLayout>
@@ -33,8 +36,6 @@
 #include <QMouseEvent>
 #include <QPushButton>
 #include <QRegularExpression>
-#include <QScrollArea>
-#include <QShortcut>
 #include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QSpinBox>
@@ -63,11 +64,14 @@ LevelEditorDialog::LevelEditorDialog(QWidget *parent)
     , isBulkUpdating(false)
     , isEditablePointMode(false)
     , isDraggingWindow(false)
+    , isRestoringSnapshot(false)
     , dragWindowOffset(QPoint(0, 0))
     , mapPlaceholderLabel(nullptr)
     , mapTable(nullptr)
     , mapPreviewEdit(nullptr)
     , generateButton(nullptr)
+    , undoButton(nullptr)
+    , redoButton(nullptr)
     , borderButton(nullptr)
     , clearButton(nullptr)
     , zoomOutButton(nullptr)
@@ -77,12 +81,9 @@ LevelEditorDialog::LevelEditorDialog(QWidget *parent)
     , clearEditablePointsButton(nullptr)
     , importButton(nullptr)
     , validateButton(nullptr)
+    , testButton(nullptr)
     , saveButton(nullptr)
     , closeButton(nullptr)
-    , undoButton(nullptr)
-    , redoButton(nullptr)
-    , isRestoringHistory(false)
-    , isDrawingHistoryCaptured(false)
 {
     setupUi();
     setupConnections();
@@ -121,11 +122,7 @@ bool LevelEditorDialog::eventFilter(QObject *watched, QEvent *event)
             QMouseEvent *mouseEvent = static_cast<QMouseEvent *>(event);
 
             if (mouseEvent->button() == Qt::LeftButton) {
-                if (!isDrawingHistoryCaptured) {
-                    recordUndoSnapshot();
-                    isDrawingHistoryCaptured = true;
-                }
-
+                pushUndoSnapshot();
                 isPainting = true;
                 isErasing = false;
                 paintCellAtViewportPosition(mouseEvent->pos(), currentTile);
@@ -133,11 +130,7 @@ bool LevelEditorDialog::eventFilter(QObject *watched, QEvent *event)
             }
 
             if (mouseEvent->button() == Qt::RightButton) {
-                if (!isDrawingHistoryCaptured) {
-                    recordUndoSnapshot();
-                    isDrawingHistoryCaptured = true;
-                }
-
+                pushUndoSnapshot();
                 isPainting = false;
                 isErasing = true;
                 paintCellAtViewportPosition(mouseEvent->pos(), TileDefs::Empty);
@@ -160,12 +153,10 @@ bool LevelEditorDialog::eventFilter(QObject *watched, QEvent *event)
         else if (event->type() == QEvent::MouseButtonRelease) {
             isPainting = false;
             isErasing = false;
-            isDrawingHistoryCaptured = false;
         }
         else if (event->type() == QEvent::Leave) {
             isPainting = false;
             isErasing = false;
-            isDrawingHistoryCaptured = false;
         }
     }
 
@@ -215,18 +206,17 @@ void LevelEditorDialog::setupUi()
     mainLayout->addLayout(contentLayout, 1);
 
     QScrollArea *sideScrollArea = new QScrollArea(this);
-    sideScrollArea->setObjectName("sideScrollArea");
     sideScrollArea->setWidgetResizable(true);
     sideScrollArea->setFrameShape(QFrame::NoFrame);
     sideScrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     sideScrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
-    sideScrollArea->setFixedWidth(370);
+    sideScrollArea->setFixedWidth(372);
     sideScrollArea->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
 
     QFrame *infoFrame = new QFrame();
     infoFrame->setObjectName("infoFrame");
     infoFrame->setMinimumWidth(340);
-    infoFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    infoFrame->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Minimum);
 
     QVBoxLayout *sideLayout = new QVBoxLayout(infoFrame);
     sideLayout->setContentsMargins(14, 14, 14, 14);
@@ -264,6 +254,8 @@ void LevelEditorDialog::setupUi()
     tileComboBox->addItem("死亡区 X", QString(TileDefs::Death));
     tileComboBox->addItem("缓冲区 SLOW", QString(TileDefs::Slow));
     tileComboBox->addItem("激光门 L", QString(TileDefs::Laser));
+    tileComboBox->addItem("钥匙 K", QString(TileDefs::Key));
+    tileComboBox->addItem("门 A", QString(TileDefs::Door));
     tileComboBox->addItem("数据碎片 *", QString(TileDefs::Data));
     tileComboBox->addItem("候选点 E", QString(EditablePointTool));
     tileComboBox->addItem("蹦床 ↗", QString(TileDefs::TrampolineUpRight));
@@ -278,6 +270,14 @@ void LevelEditorDialog::setupUi()
     saveFolderComboBox->addItem("自定义关卡文件夹 custom_levels", "custom_levels");
     saveFolderComboBox->addItem("内置关卡文件夹 levels", "levels");
     saveFolderComboBox->setCurrentIndex(0);
+
+    const int editorControlHeight = 38;
+    nameEdit->setMinimumHeight(editorControlHeight);
+    widthSpinBox->setMinimumHeight(editorControlHeight);
+    heightSpinBox->setMinimumHeight(editorControlHeight);
+    targetReverseSpinBox->setMinimumHeight(editorControlHeight);
+    tileComboBox->setMinimumHeight(editorControlHeight);
+    saveFolderComboBox->setMinimumHeight(editorControlHeight);
 
     currentToolPreviewLabel = new QLabel(infoFrame);
     currentToolPreviewLabel->setAlignment(Qt::AlignCenter);
@@ -305,17 +305,6 @@ void LevelEditorDialog::setupUi()
         "padding: 4px;"
         );
 
-    const int fieldMinHeight = 38;
-    nameEdit->setMinimumHeight(fieldMinHeight);
-    widthSpinBox->setMinimumHeight(fieldMinHeight);
-    heightSpinBox->setMinimumHeight(fieldMinHeight);
-    targetReverseSpinBox->setMinimumHeight(fieldMinHeight);
-    tileComboBox->setMinimumHeight(fieldMinHeight);
-    saveFolderComboBox->setMinimumHeight(fieldMinHeight);
-    currentToolPreviewLabel->setMinimumHeight(40);
-    zoomInfoLabel->setMinimumHeight(38);
-    editablePointInfoLabel->setMinimumHeight(38);
-
     formLayout->addRow("关卡名：", nameEdit);
     formLayout->addRow("宽度：", widthSpinBox);
     formLayout->addRow("高度：", heightSpinBox);
@@ -337,58 +326,59 @@ void LevelEditorDialog::setupUi()
     buttonLayout->setVerticalSpacing(8);
 
     generateButton = new QPushButton("生成地图", buttonFrame);
+    undoButton = new QPushButton("撤销", buttonFrame);
+    redoButton = new QPushButton("重做", buttonFrame);
     borderButton = new QPushButton("边框墙", buttonFrame);
     clearButton = new QPushButton("清空", buttonFrame);
     zoomOutButton = new QPushButton("缩小地图", buttonFrame);
     zoomInButton = new QPushButton("放大地图", buttonFrame);
     resetZoomButton = new QPushButton("还原缩放", buttonFrame);
-    undoButton = new QPushButton("撤销", buttonFrame);
-    redoButton = new QPushButton("重做", buttonFrame);
-    undoButton->setToolTip("撤销上一步编辑（Ctrl+Z）");
-    redoButton->setToolTip("重做刚撤销的编辑（Ctrl+Y / Ctrl+Shift+Z）");
     editablePointModeButton = new QPushButton("选择候选点工具", buttonFrame);
     clearEditablePointsButton = new QPushButton("清候选点", buttonFrame);
     importButton = new QPushButton("导入 JSON", buttonFrame);
     validateButton = new QPushButton("校验地图", buttonFrame);
+    testButton = new QPushButton("测试当前关卡", buttonFrame);
     saveButton = new QPushButton("保存关卡", buttonFrame);
     closeButton = new QPushButton("关闭", buttonFrame);
 
     QList<QPushButton *> buttons = {
         generateButton,
+        undoButton,
+        redoButton,
         borderButton,
         clearButton,
         zoomOutButton,
         zoomInButton,
         resetZoomButton,
-        undoButton,
-        redoButton,
         editablePointModeButton,
         clearEditablePointsButton,
         importButton,
         validateButton,
+        testButton,
         saveButton,
         closeButton
     };
 
     for (QPushButton *button : buttons) {
-        button->setMinimumHeight(40);
+        button->setMinimumHeight(38);
         button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     }
 
-    buttonLayout->addWidget(generateButton, 0, 0);
-    buttonLayout->addWidget(importButton, 0, 1);
-    buttonLayout->addWidget(borderButton, 1, 0);
-    buttonLayout->addWidget(clearButton, 1, 1);
-    buttonLayout->addWidget(zoomOutButton, 2, 0);
-    buttonLayout->addWidget(zoomInButton, 2, 1);
-    buttonLayout->addWidget(resetZoomButton, 3, 0, 1, 2);
-    buttonLayout->addWidget(undoButton, 4, 0);
-    buttonLayout->addWidget(redoButton, 4, 1);
+    buttonLayout->addWidget(undoButton, 0, 0);
+    buttonLayout->addWidget(redoButton, 0, 1);
+    buttonLayout->addWidget(generateButton, 1, 0);
+    buttonLayout->addWidget(importButton, 1, 1);
+    buttonLayout->addWidget(borderButton, 2, 0);
+    buttonLayout->addWidget(clearButton, 2, 1);
+    buttonLayout->addWidget(zoomOutButton, 3, 0);
+    buttonLayout->addWidget(zoomInButton, 3, 1);
+    buttonLayout->addWidget(resetZoomButton, 4, 0, 1, 2);
     buttonLayout->addWidget(editablePointModeButton, 5, 0, 1, 2);
     buttonLayout->addWidget(clearEditablePointsButton, 6, 0, 1, 2);
     buttonLayout->addWidget(validateButton, 7, 0);
-    buttonLayout->addWidget(saveButton, 7, 1);
-    buttonLayout->addWidget(closeButton, 8, 0, 1, 2);
+    buttonLayout->addWidget(testButton, 7, 1);
+    buttonLayout->addWidget(saveButton, 8, 0, 1, 2);
+    buttonLayout->addWidget(closeButton, 9, 0, 1, 2);
 
     sideLayout->addWidget(buttonFrame);
 
@@ -396,6 +386,8 @@ void LevelEditorDialog::setupUi()
         "操作提示：\n"
         "左键拖动：绘制当前元素\n"
         "右键拖动：擦除为空地\n"
+        "Ctrl+Z：撤销，Ctrl+Y：重做\n"
+        "测试当前关卡：不保存，直接进入游戏试玩\n"
         "双击格子：擦除为空地\n"
         "缩小地图：适合 150×150 大图\n横向/纵向滚动条：浏览边角\n"
         "还原缩放：恢复默认格子大小\n"
@@ -489,12 +481,9 @@ void LevelEditorDialog::setupUi()
         "color: white;"
         "font-family: Microsoft YaHei;"
         "}"
-        "QScrollArea#sideScrollArea {"
-        "background-color: transparent;"
+        "QScrollArea {"
+        "background: transparent;"
         "border: none;"
-        "}"
-        "QScrollArea#sideScrollArea > QWidget > QWidget {"
-        "background-color: transparent;"
         "}"
         "QFrame#infoFrame, QFrame#mapFrame, QFrame#buttonFrame {"
         "background-color: #202638;"
@@ -556,29 +545,29 @@ void LevelEditorDialog::setupConnections()
     connect(generateButton, &QPushButton::clicked,
             this, &LevelEditorDialog::generateMapTable);
 
-    connect(borderButton, &QPushButton::clicked,
-            this, &LevelEditorDialog::addBorderWalls);
-
-    connect(clearButton, &QPushButton::clicked,
-            this, &LevelEditorDialog::clearMapToEmpty);
-
     connect(undoButton, &QPushButton::clicked,
             this, &LevelEditorDialog::undoEdit);
 
     connect(redoButton, &QPushButton::clicked,
             this, &LevelEditorDialog::redoEdit);
 
-    QShortcut *undoShortcut = new QShortcut(QKeySequence("Ctrl+Z"), this);
+    QShortcut *undoShortcut = new QShortcut(QKeySequence::Undo, this);
     connect(undoShortcut, &QShortcut::activated,
             this, &LevelEditorDialog::undoEdit);
 
-    QShortcut *redoShortcut = new QShortcut(QKeySequence("Ctrl+Y"), this);
+    QShortcut *redoShortcut = new QShortcut(QKeySequence::Redo, this);
     connect(redoShortcut, &QShortcut::activated,
             this, &LevelEditorDialog::redoEdit);
 
-    QShortcut *redoShiftShortcut = new QShortcut(QKeySequence("Ctrl+Shift+Z"), this);
-    connect(redoShiftShortcut, &QShortcut::activated,
+    QShortcut *redoShortcutAlt = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+Z")), this);
+    connect(redoShortcutAlt, &QShortcut::activated,
             this, &LevelEditorDialog::redoEdit);
+
+    connect(borderButton, &QPushButton::clicked,
+            this, &LevelEditorDialog::addBorderWalls);
+
+    connect(clearButton, &QPushButton::clicked,
+            this, &LevelEditorDialog::clearMapToEmpty);
 
     connect(zoomOutButton, &QPushButton::clicked,
             this, &LevelEditorDialog::zoomOutMap);
@@ -612,8 +601,6 @@ void LevelEditorDialog::setupConnections()
     });
 
     connect(mapTable, &QTableWidget::cellDoubleClicked, this, [this](int row, int col) {
-        recordUndoSnapshot();
-
         if (isEditablePointMode || isEditablePointTool(currentTile)) {
             removeEditablePoint(row, col);
         } else {
@@ -623,6 +610,9 @@ void LevelEditorDialog::setupConnections()
 
     connect(validateButton, &QPushButton::clicked,
             this, &LevelEditorDialog::validateMapByButton);
+
+    connect(testButton, &QPushButton::clicked,
+            this, &LevelEditorDialog::testCurrentLevel);
 
     connect(saveButton, &QPushButton::clicked,
             this, &LevelEditorDialog::saveCurrentLevel);
@@ -635,19 +625,21 @@ void LevelEditorDialog::setupConnections()
     updateUndoRedoButtons();
 }
 
+
 LevelEditorDialog::EditorSnapshot LevelEditorDialog::createEditorSnapshot() const
 {
     EditorSnapshot snapshot;
-    snapshot.name = nameEdit != nullptr ? nameEdit->text() : QString();
-    snapshot.width = widthSpinBox != nullptr ? widthSpinBox->value() : 5;
-    snapshot.height = heightSpinBox != nullptr ? heightSpinBox->value() : 5;
-    snapshot.targetReverseCount = targetReverseSpinBox != nullptr ? targetReverseSpinBox->value() : 0;
-    snapshot.saveFolderIndex = saveFolderComboBox != nullptr ? saveFolderComboBox->currentIndex() : 0;
-    snapshot.tileComboIndex = tileComboBox != nullptr ? tileComboBox->currentIndex() : 0;
-    snapshot.cellSize = mapCellSize;
-    snapshot.hasMap = mapTable != nullptr && mapTable->isVisible();
 
-    if (snapshot.hasMap) {
+    snapshot.tableVisible = (mapTable != nullptr && mapTable->isVisible());
+    snapshot.levelName = (nameEdit != nullptr) ? nameEdit->text() : QString();
+    snapshot.width = (widthSpinBox != nullptr) ? widthSpinBox->value() : 12;
+    snapshot.height = (heightSpinBox != nullptr) ? heightSpinBox->value() : 8;
+    snapshot.targetReverseCount = (targetReverseSpinBox != nullptr) ? targetReverseSpinBox->value() : 6;
+    snapshot.mapCellSize = mapCellSize;
+    snapshot.tileComboIndex = (tileComboBox != nullptr) ? tileComboBox->currentIndex() : 0;
+    snapshot.saveFolderIndex = (saveFolderComboBox != nullptr) ? saveFolderComboBox->currentIndex() : 0;
+
+    if (snapshot.tableVisible) {
         snapshot.mapData = buildMapDataFromTable();
         snapshot.editablePoints = buildEditablePointsFromTable();
     }
@@ -655,16 +647,64 @@ LevelEditorDialog::EditorSnapshot LevelEditorDialog::createEditorSnapshot() cons
     return snapshot;
 }
 
-void LevelEditorDialog::recordUndoSnapshot()
+void LevelEditorDialog::restoreEditorSnapshot(const EditorSnapshot &snapshot)
 {
-    if (isRestoringHistory) {
+    isRestoringSnapshot = true;
+
+    nameEdit->setText(snapshot.levelName);
+    widthSpinBox->setValue(snapshot.width);
+    heightSpinBox->setValue(snapshot.height);
+    targetReverseSpinBox->setValue(snapshot.targetReverseCount);
+
+    if (tileComboBox != nullptr && snapshot.tileComboIndex >= 0 && snapshot.tileComboIndex < tileComboBox->count()) {
+        tileComboBox->setCurrentIndex(snapshot.tileComboIndex);
+        currentTile = currentTileFromCombo();
+    }
+
+    if (saveFolderComboBox != nullptr && snapshot.saveFolderIndex >= 0 && snapshot.saveFolderIndex < saveFolderComboBox->count()) {
+        saveFolderComboBox->setCurrentIndex(snapshot.saveFolderIndex);
+    }
+
+    if (!snapshot.tableVisible || snapshot.mapData.isEmpty()) {
+        QSignalBlocker blocker(mapTable);
+        mapTable->clear();
+        mapTable->setRowCount(0);
+        mapTable->setColumnCount(0);
+        editablePointKeys.clear();
+        mapPlaceholderLabel->setVisible(true);
+        mapTable->setVisible(false);
+        mapPreviewEdit->clear();
+        mapPreviewEdit->setVisible(false);
+        updateEditablePointInfo();
+        updateMapPreview();
+        updateCurrentToolPreview();
+        updateZoomInfo();
+        adjustEditorSizeToMap();
+        isRestoringSnapshot = false;
+        return;
+    }
+
+    loadMapDataToTable(snapshot.mapData);
+    loadEditablePointsToTable(snapshot.editablePoints);
+    setMapCellSize(snapshot.mapCellSize);
+    updateMapPreview();
+    updateEditablePointInfo();
+    updateCurrentToolPreview();
+    adjustEditorSizeToMap();
+
+    isRestoringSnapshot = false;
+}
+
+void LevelEditorDialog::pushUndoSnapshot()
+{
+    if (isRestoringSnapshot) {
         return;
     }
 
     undoStack.append(createEditorSnapshot());
 
-    const int maxHistoryCount = 80;
-    while (undoStack.size() > maxHistoryCount) {
+    constexpr int MaxUndoSteps = 80;
+    while (undoStack.size() > MaxUndoSteps) {
         undoStack.removeFirst();
     }
 
@@ -672,106 +712,29 @@ void LevelEditorDialog::recordUndoSnapshot()
     updateUndoRedoButtons();
 }
 
-void LevelEditorDialog::restoreEditorSnapshot(const EditorSnapshot &snapshot)
+void LevelEditorDialog::undoEdit()
 {
-    isRestoringHistory = true;
-
-    if (nameEdit != nullptr) {
-        nameEdit->setText(snapshot.name);
+    if (undoStack.isEmpty()) {
+        return;
     }
 
-    if (widthSpinBox != nullptr) {
-        widthSpinBox->setValue(snapshot.width);
-    }
-
-    if (heightSpinBox != nullptr) {
-        heightSpinBox->setValue(snapshot.height);
-    }
-
-    if (targetReverseSpinBox != nullptr) {
-        targetReverseSpinBox->setValue(snapshot.targetReverseCount);
-    }
-
-    if (saveFolderComboBox != nullptr && snapshot.saveFolderIndex >= 0
-        && snapshot.saveFolderIndex < saveFolderComboBox->count()) {
-        saveFolderComboBox->setCurrentIndex(snapshot.saveFolderIndex);
-    }
-
-    if (tileComboBox != nullptr && snapshot.tileComboIndex >= 0
-        && snapshot.tileComboIndex < tileComboBox->count()) {
-        tileComboBox->setCurrentIndex(snapshot.tileComboIndex);
-    }
-
-    currentTile = currentTileFromCombo();
-    isEditablePointMode = false;
-    mapCellSize = qBound(6, snapshot.cellSize, 60);
-
-    QSignalBlocker blocker(mapTable);
-    mapTable->setUpdatesEnabled(false);
-    isBulkUpdating = true;
-    editablePointKeys.clear();
-
-    if (!snapshot.hasMap || snapshot.mapData.isEmpty()) {
-        mapTable->clear();
-        mapTable->setRowCount(0);
-        mapTable->setColumnCount(0);
-        mapTable->setVisible(false);
-        mapPreviewEdit->clear();
-        mapPreviewEdit->setVisible(false);
-        mapPlaceholderLabel->setVisible(true);
-    } else {
-        const int rowCount = snapshot.mapData.size();
-        const int columnCount = snapshot.mapData[0].size();
-
-        mapTable->clear();
-        mapTable->setRowCount(rowCount);
-        mapTable->setColumnCount(columnCount);
-
-        for (int col = 0; col < columnCount; ++col) {
-            mapTable->setColumnWidth(col, mapCellSize);
-        }
-
-        for (int row = 0; row < rowCount; ++row) {
-            mapTable->setRowHeight(row, mapCellSize);
-
-            for (int col = 0; col < columnCount; ++col) {
-                QTableWidgetItem *item = new QTableWidgetItem();
-                item->setTextAlignment(Qt::AlignCenter);
-                item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
-                mapTable->setItem(row, col, item);
-                setCellTile(row, col, snapshot.mapData[row][col]);
-            }
-        }
-
-        for (const QPoint &point : snapshot.editablePoints) {
-            if (point.y() >= 0 && point.y() < rowCount
-                && point.x() >= 0 && point.x() < columnCount) {
-                editablePointKeys.insert(editablePointKey(point.y(), point.x()));
-            }
-        }
-
-        mapPlaceholderLabel->setVisible(false);
-        mapTable->setVisible(true);
-        mapPreviewEdit->setVisible(true);
-    }
-
-    isBulkUpdating = false;
-    mapTable->setUpdatesEnabled(true);
-
-    refreshAllCellStyles();
-    updateMapPreview();
-    updateCurrentToolPreview();
-    updateEditablePointInfo();
-    updateZoomInfo();
-    adjustEditorSizeToMap();
-
-    isRestoringHistory = false;
+    EditorSnapshot current = createEditorSnapshot();
+    EditorSnapshot previous = undoStack.takeLast();
+    redoStack.append(current);
+    restoreEditorSnapshot(previous);
+    updateUndoRedoButtons();
 }
 
-void LevelEditorDialog::clearHistory()
+void LevelEditorDialog::redoEdit()
 {
-    undoStack.clear();
-    redoStack.clear();
+    if (redoStack.isEmpty()) {
+        return;
+    }
+
+    EditorSnapshot current = createEditorSnapshot();
+    EditorSnapshot next = redoStack.takeLast();
+    undoStack.append(current);
+    restoreEditorSnapshot(next);
     updateUndoRedoButtons();
 }
 
@@ -786,36 +749,12 @@ void LevelEditorDialog::updateUndoRedoButtons()
     }
 }
 
-void LevelEditorDialog::undoEdit()
-{
-    if (undoStack.isEmpty()) {
-        return;
-    }
-
-    redoStack.append(createEditorSnapshot());
-    EditorSnapshot snapshot = undoStack.takeLast();
-    restoreEditorSnapshot(snapshot);
-    updateUndoRedoButtons();
-}
-
-void LevelEditorDialog::redoEdit()
-{
-    if (redoStack.isEmpty()) {
-        return;
-    }
-
-    undoStack.append(createEditorSnapshot());
-    EditorSnapshot snapshot = redoStack.takeLast();
-    restoreEditorSnapshot(snapshot);
-    updateUndoRedoButtons();
-}
-
 void LevelEditorDialog::generateMapTable()
 {
-    recordUndoSnapshot();
-
     const int columnCount = widthSpinBox->value();
     const int rowCount = heightSpinBox->value();
+
+    pushUndoSnapshot();
 
     QSignalBlocker blocker(mapTable);
     mapTable->setUpdatesEnabled(false);
@@ -985,7 +924,7 @@ void LevelEditorDialog::updateCellStyle(int row, int col)
 
     int fontSize = qBound(4, mapCellSize / 2, 11);
 
-    if (TileDefs::isSlow(tile) || TileDefs::isEnd(tile)) {
+    if (TileDefs::isSlow(tile) || TileDefs::isEnd(tile) || TileDefs::isDoor(tile)) {
         fontSize = qBound(4, mapCellSize / 3, 8);
     }
 
@@ -1105,6 +1044,14 @@ QString LevelEditorDialog::tileDisplayText(QChar tile) const
         return "L";
     }
 
+    if (TileDefs::isKey(tile)) {
+        return "K";
+    }
+
+    if (TileDefs::isDoor(tile)) {
+        return "A";
+    }
+
     if (TileDefs::isData(tile)) {
         return "*";
     }
@@ -1167,6 +1114,14 @@ QColor LevelEditorDialog::tileBackgroundColor(QChar tile) const
         return QColor("#ff1744");
     }
 
+    if (TileDefs::isKey(tile)) {
+        return QColor("#facc15");
+    }
+
+    if (TileDefs::isDoor(tile)) {
+        return QColor("#92400e");
+    }
+
     if (TileDefs::isData(tile)) {
         return QColor("#00f5d4");
     }
@@ -1188,7 +1143,7 @@ QColor LevelEditorDialog::tileTextColor(QChar tile) const
         return QColor("#94a3b8");
     }
 
-    if (TileDefs::isData(tile)) {
+    if (TileDefs::isData(tile) || TileDefs::isKey(tile)) {
         return QColor("#10131f");
     }
 
@@ -1255,6 +1210,8 @@ bool LevelEditorDialog::validateMapData(const QStringList &mapData, QString *err
 
     int startCount = 0;
     int endCount = 0;
+    int keyCount = 0;
+    int doorCount = 0;
 
     for (int row = 0; row < mapData.size(); ++row) {
         QString line = mapData[row];
@@ -1289,6 +1246,14 @@ bool LevelEditorDialog::validateMapData(const QStringList &mapData, QString *err
             if (TileDefs::isEnd(tile)) {
                 endCount++;
             }
+
+            if (TileDefs::isKey(tile)) {
+                keyCount++;
+            }
+
+            if (TileDefs::isDoor(tile)) {
+                doorCount++;
+            }
         }
     }
 
@@ -1309,6 +1274,13 @@ bool LevelEditorDialog::validateMapData(const QStringList &mapData, QString *err
     if (endCount == 0) {
         if (errorMessage != nullptr) {
             *errorMessage = "地图至少需要一个终点 3。请用“终点 END”工具放置终点。";
+        }
+        return false;
+    }
+
+    if (doorCount > 0 && keyCount == 0) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "地图中存在门 A，但没有钥匙 K。请至少放置一把钥匙，避免门永远无法打开。";
         }
         return false;
     }
@@ -1365,6 +1337,35 @@ void LevelEditorDialog::validateMapByButton()
         );
 }
 
+void LevelEditorDialog::testCurrentLevel()
+{
+    QString errorMessage;
+
+    if (!validateCurrentMap(&errorMessage)) {
+        QMessageBox::warning(
+            this,
+            "测试失败",
+            "当前地图不合法，不能进入测试。\n\n错误原因：\n" + errorMessage
+            );
+        return;
+    }
+
+    QString levelName = nameEdit->text().trimmed();
+    if (levelName.isEmpty()) {
+        levelName = "设计器临时测试关卡";
+    }
+
+    Level level(
+        levelName,
+        buildMapDataFromTable(),
+        targetReverseSpinBox->value(),
+        buildEditablePointsFromTable(),
+        true
+        );
+
+    emit requestTestLevel(level);
+}
+
 void LevelEditorDialog::addBorderWalls()
 {
     if (mapTable == nullptr || !mapTable->isVisible()) {
@@ -1388,7 +1389,7 @@ void LevelEditorDialog::addBorderWalls()
         return;
     }
 
-    recordUndoSnapshot();
+    pushUndoSnapshot();
 
     QSignalBlocker blocker(mapTable);
     mapTable->setUpdatesEnabled(false);
@@ -1440,7 +1441,7 @@ void LevelEditorDialog::clearMapToEmpty()
         return;
     }
 
-    recordUndoSnapshot();
+    pushUndoSnapshot();
 
     QSignalBlocker blocker(mapTable);
     mapTable->setUpdatesEnabled(false);
@@ -1543,7 +1544,7 @@ void LevelEditorDialog::adjustEditorSizeToMap()
         availableGeometry = screen->availableGeometry();
     }
 
-    const int sidePanelWidth = 370;
+    const int sidePanelWidth = 372;
     int maxWindowWidth = 1480;
     int maxWindowHeight = 900;
 
@@ -1713,6 +1714,8 @@ bool LevelEditorDialog::canBeEditablePoint(int row, int col, QString *errorMessa
         || TileDefs::isEnd(tile)
         || TileDefs::isDeath(tile)
         || TileDefs::isData(tile)
+        || TileDefs::isKey(tile)
+        || TileDefs::isDoor(tile)
         || TileDefs::isBounce(tile)
         || TileDefs::isConveyor(tile)) {
         if (errorMessage != nullptr) {
@@ -1775,7 +1778,7 @@ void LevelEditorDialog::clearEditablePoints()
         return;
     }
 
-    recordUndoSnapshot();
+    pushUndoSnapshot();
 
     QVector<QPoint> oldPoints = buildEditablePointsFromTable();
     editablePointKeys.clear();
@@ -1923,6 +1926,8 @@ bool LevelEditorDialog::validateEditablePoints(const QStringList &mapData,
             || TileDefs::isEnd(tile)
             || TileDefs::isDeath(tile)
             || TileDefs::isData(tile)
+            || TileDefs::isKey(tile)
+            || TileDefs::isDoor(tile)
             || TileDefs::isBounce(tile)
             || TileDefs::isConveyor(tile)) {
             if (errorMessage != nullptr) {
@@ -2188,7 +2193,7 @@ void LevelEditorDialog::importLevelFromJson()
         return;
     }
 
-    recordUndoSnapshot();
+    pushUndoSnapshot();
 
     nameEdit->setText(name);
     targetReverseSpinBox->setValue(targetReverseCount);

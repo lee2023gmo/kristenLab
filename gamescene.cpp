@@ -26,6 +26,8 @@
 
 GameScene::GameScene(QObject *parent)
     : QGraphicsScene(parent)
+    , isTemporaryTestLevel(false)
+    , temporaryTestLevel()
     , currentLevelIndex(0)
     , timer(new QTimer(this))
     , gravityDirection(GravityDirection::Down)
@@ -35,6 +37,8 @@ GameScene::GameScene(QObject *parent)
     , deathCount(0)
     , collectedDataFragmentCount(0)
     , totalDataFragmentCount(0)
+    , collectedKeyCount(0)
+    , totalKeyCount(0)
     , isPaused(false)
     , gameEnded(false)
     , wasOnTrampoline(false)
@@ -76,8 +80,28 @@ void GameScene::loadLevel(int levelIndex)
     }
 
     currentLevelIndex = levelIndex;
+    isTemporaryTestLevel = false;
+    temporaryTestLevel = Level();
 
     Level currentLevel = levelManager.levelAt(currentLevelIndex);
+    applyLevelData(currentLevel);
+
+    qDebug() << "Loaded level:" << currentLevel.name;
+}
+
+void GameScene::loadTemporaryLevelForTest(const Level &level)
+{
+    isTemporaryTestLevel = true;
+    temporaryTestLevel = level;
+    currentLevelIndex = -1;
+
+    applyLevelData(temporaryTestLevel);
+
+    qDebug() << "Loaded temporary designer test level:" << temporaryTestLevel.name;
+}
+
+void GameScene::applyLevelData(const Level &currentLevel)
+{
     mapData = currentLevel.mapData;
 
     // 读取关卡配置的候选编辑点。
@@ -101,6 +125,8 @@ void GameScene::loadLevel(int levelIndex)
 
     collectedDataFragmentCount = 0;
     totalDataFragmentCount = countDataFragments();
+    collectedKeyCount = 0;
+    totalKeyCount = countKeys();
 
     elapsedMs = 0;
     wasOnTrampoline = false;
@@ -115,8 +141,6 @@ void GameScene::loadLevel(int levelIndex)
 
     updateStatusText();
     setFocus();
-
-    qDebug() << "Loaded level:" << currentLevel.name;
 }
 
 void GameScene::drawMap()
@@ -132,6 +156,9 @@ void GameScene::drawMap()
 
     // 清空数据碎片图形记录。
     dataFragmentItems.clear();
+    keyItems.clear();
+    doorItems.clear();
+    doorLabelItems.clear();
     laserItems.clear();
     laserLabelItems.clear();
 
@@ -345,6 +372,85 @@ void GameScene::drawMap()
                     laserLabelItems.insert(key, laserText);
                 }
             }
+            else if (TileDefs::isKey(tile)) {
+                // 钥匙底下仍然画空地，角色进入该格后会自动拾取。
+                if (!emptyPixmap.isNull()) {
+                    QGraphicsPixmapItem *background = addPixmap(emptyPixmap.scaled(
+                        TILE_SIZE, TILE_SIZE,
+                        Qt::IgnoreAspectRatio,
+                        Qt::SmoothTransformation));
+                    background->setPos(x, y);
+                    background->setZValue(0);
+                } else {
+                    addRect(x, y, TILE_SIZE, TILE_SIZE,
+                            QPen(QColor("#27304a")), QBrush(QColor("#10131f")));
+                }
+
+                QRectF keyBody(x + 12, y + 9, TILE_SIZE - 24, TILE_SIZE - 18);
+                QGraphicsEllipseItem *keyItem = addEllipse(
+                    keyBody,
+                    QPen(QColor("#f8fafc"), 2),
+                    QBrush(QColor("#facc15"))
+                    );
+                keyItem->setZValue(7);
+
+                QRectF keyHandle(x + TILE_SIZE / 2.0 - 2, y + TILE_SIZE / 2.0,
+                                 4, TILE_SIZE / 2.0 - 8);
+                QGraphicsRectItem *handleItem = addRect(
+                    keyHandle,
+                    QPen(QColor("#f8fafc"), 1),
+                    QBrush(QColor("#facc15"))
+                    );
+                handleItem->setParentItem(keyItem);
+
+                QGraphicsSimpleTextItem *keyText = addSimpleText("K", QFont("Arial", 10, QFont::Bold));
+                keyText->setBrush(QColor("#111827"));
+                keyText->setZValue(8);
+                QRectF textRect = keyText->boundingRect();
+                keyText->setPos(
+                    x + TILE_SIZE / 2.0 - textRect.width() / 2.0,
+                    y + TILE_SIZE / 2.0 - textRect.height() / 2.0
+                    );
+                keyText->setParentItem(keyItem);
+
+                QString key = gridKey(QPoint(col, row));
+                keyItems.insert(key, keyItem);
+            }
+            else if (TileDefs::isDoor(tile)) {
+                // 门底下画空地。未拾取钥匙时门阻挡；拾取钥匙后门变淡并可通过。
+                if (!emptyPixmap.isNull()) {
+                    QGraphicsPixmapItem *background = addPixmap(emptyPixmap.scaled(
+                        TILE_SIZE, TILE_SIZE,
+                        Qt::IgnoreAspectRatio,
+                        Qt::SmoothTransformation));
+                    background->setPos(x, y);
+                    background->setZValue(0);
+                } else {
+                    addRect(x, y, TILE_SIZE, TILE_SIZE,
+                            QPen(QColor("#27304a")), QBrush(QColor("#10131f")));
+                }
+
+                QRectF doorRect(x + 6, y + 4, TILE_SIZE - 12, TILE_SIZE - 8);
+                QGraphicsRectItem *doorItem = addRect(
+                    doorRect,
+                    QPen(QColor("#f59e0b"), 2),
+                    QBrush(QColor("#92400e"))
+                    );
+                doorItem->setZValue(8);
+
+                QGraphicsSimpleTextItem *doorText = addSimpleText("A", QFont("Arial", 11, QFont::Bold));
+                doorText->setBrush(QColor("#ffffff"));
+                doorText->setZValue(9);
+                QRectF textRect = doorText->boundingRect();
+                doorText->setPos(
+                    x + TILE_SIZE / 2.0 - textRect.width() / 2.0,
+                    y + TILE_SIZE / 2.0 - textRect.height() / 2.0
+                    );
+
+                QString key = gridKey(QPoint(col, row));
+                doorItems.insert(key, doorItem);
+                doorLabelItems.insert(key, doorText);
+            }
             else if (TileDefs::isTrampoline(tile)) {
                 QPixmap pixmapToUse;
 
@@ -423,6 +529,7 @@ void GameScene::drawMap()
 
     createStatusText();
     updateLaserItems();
+    updateDoorItems();
 
     qDebug() << "Map loaded.";
     qDebug() << "Start grid position:" << startGridPos;
@@ -552,21 +659,28 @@ void GameScene::updateStatusText()
 
     QString levelName = "未知关卡";
     int targetCount = 0;
+    QString levelText;
 
-    if (levelManager.isValidLevelIndex(currentLevelIndex)) {
+    if (isTemporaryTestLevel) {
+        levelName = "[测试] " + temporaryTestLevel.name;
+        targetCount = temporaryTestLevel.targetReverseCount;
+        levelText = QString("关卡：测试  %1").arg(levelName);
+    }
+    else if (levelManager.isValidLevelIndex(currentLevelIndex)) {
         Level currentLevel = levelManager.levelAt(currentLevelIndex);
         levelName = currentLevel.name;
         if (currentLevel.isCustomLevel) {
             levelName = "[自定义] " + levelName;
         }
         targetCount = currentLevel.targetReverseCount;
-
+        levelText = QString("关卡：%1/%2  %3")
+                        .arg(currentLevelIndex + 1)
+                        .arg(levelManager.levelCount())
+                        .arg(levelName);
     }
-
-    QString levelText = QString("关卡：%1/%2  %3")
-                            .arg(currentLevelIndex + 1)
-                            .arg(levelManager.levelCount())
-                            .arg(levelName);
+    else {
+        levelText = QString("关卡：未知  %1").arg(levelName);
+    }
 
     QString gravityText = QString("重力：%1")
                               .arg(gravityDirectionToString());
@@ -579,6 +693,12 @@ void GameScene::updateStatusText()
                               .arg(targetCount)
                               .arg(collectedDataFragmentCount)
                               .arg(totalDataFragmentCount);
+
+    if (totalKeyCount > 0) {
+        reverseText += QString("   钥匙：%1/%2")
+                           .arg(collectedKeyCount)
+                           .arg(totalKeyCount);
+    }
 
     QString deathText = QString("死亡：%1")
                             .arg(deathCount);
@@ -1014,6 +1134,16 @@ void GameScene::restartLevel()
 }
 void GameScene::nextLevel()
 {
+    if (isTemporaryTestLevel) {
+        QMessageBox::information(
+            nullptr,
+            "提示",
+            "当前是关卡设计师的临时测试关卡，没有下一关。"
+            );
+        setFocus();
+        return;
+    }
+
     if (!levelManager.isValidLevelIndex(currentLevelIndex + 1)) {
         QMessageBox::information(
             nullptr,
@@ -1030,6 +1160,16 @@ void GameScene::nextLevel()
 
 void GameScene::previousLevel()
 {
+    if (isTemporaryTestLevel) {
+        QMessageBox::information(
+            nullptr,
+            "提示",
+            "当前是关卡设计师的临时测试关卡，没有上一关。"
+            );
+        setFocus();
+        return;
+    }
+
     if (!levelManager.isValidLevelIndex(currentLevelIndex - 1)) {
         QMessageBox::information(
             nullptr,
@@ -1058,16 +1198,28 @@ void GameScene::loadLevelByNumber(int levelNumber)
 
 int GameScene::currentLevelNumber() const
 {
+    if (isTemporaryTestLevel) {
+        return 1;
+    }
+
     return currentLevelIndex + 1;
 }
 
 int GameScene::totalLevelCount() const
 {
+    if (isTemporaryTestLevel) {
+        return 1;
+    }
+
     return levelManager.levelCount();
 }
 
 QString GameScene::levelNameByNumber(int levelNumber) const
 {
+    if (isTemporaryTestLevel && levelNumber == 1) {
+        return temporaryTestLevel.name;
+    }
+
     int levelIndex = levelNumber - 1;
 
     if (!levelManager.isValidLevelIndex(levelIndex)) {
@@ -1121,7 +1273,19 @@ QChar GameScene::tileAtScenePos(const QPointF &scenePos) const
 
 bool GameScene::isWallAt(const QPointF &scenePos) const
 {
-    return TileDefs::isWall(tileAtScenePos(scenePos));
+    QChar tile = tileAtScenePos(scenePos);
+    return TileDefs::isWall(tile) || (TileDefs::isDoor(tile) && !isDoorOpen());
+}
+
+bool GameScene::isDoorOpen() const
+{
+    // 当前版本采用“一把钥匙打开全部门”的规则。
+    return collectedKeyCount > 0;
+}
+
+bool GameScene::isClosedDoorAt(const QPointF &scenePos) const
+{
+    return TileDefs::isDoor(tileAtScenePos(scenePos)) && !isDoorOpen();
 }
 
 bool GameScene::isLaserActive() const
@@ -1291,6 +1455,25 @@ void GameScene::updateLaserItems()
 
         textItem->setBrush(textColor);
         textItem->setOpacity(active ? 1.0 : 0.45);
+    }
+}
+
+void GameScene::updateDoorItems()
+{
+    const bool open = isDoorOpen();
+
+    for (auto it = doorItems.begin(); it != doorItems.end(); ++it) {
+        if (it.value() != nullptr) {
+            it.value()->setOpacity(open ? 0.22 : 1.0);
+            it.value()->setVisible(true);
+        }
+    }
+
+    for (auto it = doorLabelItems.begin(); it != doorLabelItems.end(); ++it) {
+        if (it.value() != nullptr) {
+            it.value()->setOpacity(open ? 0.22 : 1.0);
+            it.value()->setVisible(true);
+        }
     }
 }
 
@@ -1698,6 +1881,11 @@ void GameScene::checkCurrentTile()
 
     QChar currentTile = tileAtScenePos(ball.position);
 
+    if (TileDefs::isKey(currentTile)) {
+        collectKeyAtCurrentPosition();
+        return;
+    }
+
     if (TileDefs::isData(currentTile)) {
         collectDataFragmentAtCurrentPosition();
         return;
@@ -1764,7 +1952,9 @@ void GameScene::handleVictory()
         parentWidget = views().first();
     }
 
-    Level currentLevel = levelManager.levelAt(currentLevelIndex);
+    Level currentLevel = isTemporaryTestLevel
+                             ? temporaryTestLevel
+                             : levelManager.levelAt(currentLevelIndex);
 
     int stars = calculateStars();
 
@@ -1776,7 +1966,7 @@ void GameScene::handleVictory()
                           .arg(totalDataFragmentCount)
                           .arg(starText(stars));
 
-    if (levelManager.isValidLevelIndex(currentLevelIndex + 1)) {
+    if (!isTemporaryTestLevel && levelManager.isValidLevelIndex(currentLevelIndex + 1)) {
         QMessageBox::StandardButton result = QMessageBox::question(
             parentWidget,
             "通关成功",
@@ -1791,10 +1981,17 @@ void GameScene::handleVictory()
             setFocus();
         }
     } else {
+        const QString dialogTitle = isTemporaryTestLevel
+                                        ? QStringLiteral("测试通过")
+                                        : QStringLiteral("全部通关");
+        const QString dialogSuffix = isTemporaryTestLevel
+                                         ? QStringLiteral("\n\n当前设计器关卡可以正常通关。")
+                                         : QStringLiteral("\n\n你已经完成所有关卡！");
+
         QMessageBox::information(
             parentWidget,
-            "全部通关",
-            message + "\n\n你已经完成所有关卡！"
+            dialogTitle,
+            message + dialogSuffix
             );
 
         setFocus();
@@ -1964,7 +2161,7 @@ void GameScene::saveCurrentEditedLevel()
         parentWidget = views().first();
     }
 
-    if (!levelManager.isValidLevelIndex(currentLevelIndex)) {
+    if (!isTemporaryTestLevel && !levelManager.isValidLevelIndex(currentLevelIndex)) {
         QMessageBox::warning(
             parentWidget,
             "保存失败",
@@ -1975,7 +2172,9 @@ void GameScene::saveCurrentEditedLevel()
         return;
     }
 
-    Level currentLevel = levelManager.levelAt(currentLevelIndex);
+    Level currentLevel = isTemporaryTestLevel
+                             ? temporaryTestLevel
+                             : levelManager.levelAt(currentLevelIndex);
 
     bool ok = false;
 
@@ -2155,6 +2354,8 @@ void GameScene::resetRuntimeStateForCurrentMap()
     reverseCount = 0;
     collectedDataFragmentCount = 0;
     totalDataFragmentCount = countDataFragments();
+    collectedKeyCount = 0;
+    totalKeyCount = countKeys();
 
     elapsedMs = 0;
     gameEnded = false;
@@ -2460,6 +2661,21 @@ int GameScene::countDataFragments() const
     return count;
 }
 
+int GameScene::countKeys() const
+{
+    int count = 0;
+
+    for (int row = 0; row < mapData.size(); ++row) {
+        for (int col = 0; col < mapData[row].size(); ++col) {
+            if (TileDefs::isKey(mapData[row][col])) {
+                count++;
+            }
+        }
+    }
+
+    return count;
+}
+
 QPoint GameScene::gridPosAtScenePos(const QPointF &scenePos) const
 {
     int col = static_cast<int>(scenePos.x()) / TILE_SIZE;
@@ -2527,16 +2743,75 @@ void GameScene::collectDataFragmentAtCurrentPosition()
              << totalDataFragmentCount;
 }
 
+void GameScene::collectKeyAtCurrentPosition()
+{
+    QPoint gridPos = gridPosAtScenePos(ball.position);
+
+    int col = gridPos.x();
+    int row = gridPos.y();
+
+    if (row < 0 || row >= mapData.size()) {
+        return;
+    }
+
+    if (col < 0 || col >= mapData[row].size()) {
+        return;
+    }
+
+    if (!TileDefs::isKey(mapData[row][col])) {
+        return;
+    }
+
+    QString rowText = mapData[row];
+    rowText[col] = TileDefs::Empty;
+    mapData[row] = rowText;
+
+    collectedKeyCount++;
+
+    QString key = gridKey(gridPos);
+
+    if (keyItems.contains(key)) {
+        QGraphicsItem *item = keyItems.take(key);
+        removeItem(item);
+        delete item;
+    }
+
+    // 钥匙拾取后恢复为空地背景。
+    QPixmap emptyBgPixmap(":/images/resources/images/empty.png");
+    if (!emptyBgPixmap.isNull()) {
+        QGraphicsPixmapItem *bgItem = addPixmap(emptyBgPixmap.scaled(
+            TILE_SIZE, TILE_SIZE,
+            Qt::IgnoreAspectRatio,
+            Qt::SmoothTransformation));
+        bgItem->setPos(gridPos.x() * TILE_SIZE, gridPos.y() * TILE_SIZE);
+        bgItem->setZValue(0);
+    }
+
+    updateDoorItems();
+    updateStatusText();
+
+    qDebug() << "Key collected:" << collectedKeyCount << "/" << totalKeyCount;
+}
+
 int GameScene::calculateStars() const
 {
     int stars = 1;
 
-    if (levelManager.isValidLevelIndex(currentLevelIndex)) {
-        Level currentLevel = levelManager.levelAt(currentLevelIndex);
+    int targetReverseCount = 0;
+    bool hasTarget = false;
 
-        if (reverseCount <= currentLevel.targetReverseCount) {
-            stars++;
-        }
+    if (isTemporaryTestLevel) {
+        targetReverseCount = temporaryTestLevel.targetReverseCount;
+        hasTarget = true;
+    }
+    else if (levelManager.isValidLevelIndex(currentLevelIndex)) {
+        Level currentLevel = levelManager.levelAt(currentLevelIndex);
+        targetReverseCount = currentLevel.targetReverseCount;
+        hasTarget = true;
+    }
+
+    if (hasTarget && reverseCount <= targetReverseCount) {
+        stars++;
     }
 
     if (totalDataFragmentCount > 0 &&
@@ -2548,6 +2823,10 @@ int GameScene::calculateStars() const
 }
 QString GameScene::defaultCustomLevelName() const
 {
+    if (isTemporaryTestLevel) {
+        return temporaryTestLevel.name + "_自定义";
+    }
+
     if (levelManager.isValidLevelIndex(currentLevelIndex)) {
         Level currentLevel = levelManager.levelAt(currentLevelIndex);
         return currentLevel.name + "_自定义";

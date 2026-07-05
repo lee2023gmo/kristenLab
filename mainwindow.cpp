@@ -2,6 +2,7 @@
 #include "./ui_mainwindow.h"
 #include "gamescene.h"
 #include "levelmanager.h"
+#include "level.h"
 #include "leveleditordialog.h"
 
 #include <QDebug>
@@ -1025,6 +1026,18 @@ void MainWindow::autoFitGameViewZoom()
     }
 }
 
+void MainWindow::setupGameWindowForTestLevel(const Level &level)
+{
+    setupGameWindow(1);
+
+    if (gameScene != nullptr) {
+        gameScene->loadTemporaryLevelForTest(level);
+        gameScene->refreshStatus();
+        gameViewAutoFitEnabled = true;
+        scheduleAutoFitGameViewZoom();
+    }
+}
+
 void MainWindow::showLevelEditorDialog()
 {
     LevelEditorDialog dialog(this);
@@ -1032,6 +1045,11 @@ void MainWindow::showLevelEditorDialog()
     connect(&dialog, &LevelEditorDialog::requestOpenLevelSelect, this, [this, &dialog]() {
         dialog.accept();
         showLevelSelectDialog();
+    });
+
+    connect(&dialog, &LevelEditorDialog::requestTestLevel, this, [this, &dialog](const Level &level) {
+        dialog.accept();
+        setupGameWindowForTestLevel(level);
     });
 
     dialog.exec();

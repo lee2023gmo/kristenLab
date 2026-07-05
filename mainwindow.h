@@ -15,6 +15,7 @@ class QEvent;
 class QWidget;
 class GameScene;
 class AudioPlayer;
+class Level;
 
 class MainWindow : public QMainWindow
 {
@@ -62,6 +63,7 @@ private:
 
     void setupMainMenu();
     void setupGameWindow(int startLevelNumber = 1);
+    void setupGameWindowForTestLevel(const Level &level);
     void showLevelSelectDialog();
     void showLevelEditorDialog();
     void showHelpDialog();

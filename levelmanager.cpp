@@ -124,6 +124,8 @@ bool LevelManager::validateLevel(const Level &level, QString *errorMessage) cons
 
     int startCount = 0;
     int endCount = 0;
+    int keyCount = 0;
+    int doorCount = 0;
 
     for (int row = 0; row < level.mapData.size(); ++row) {
         QString line = level.mapData[row];
@@ -158,6 +160,14 @@ bool LevelManager::validateLevel(const Level &level, QString *errorMessage) cons
             if (TileDefs::isEnd(tile)) {
                 endCount++;
             }
+
+            if (TileDefs::isKey(tile)) {
+                keyCount++;
+            }
+
+            if (TileDefs::isDoor(tile)) {
+                doorCount++;
+            }
         }
     }
 
@@ -178,6 +188,13 @@ bool LevelManager::validateLevel(const Level &level, QString *errorMessage) cons
     if (endCount == 0) {
         if (errorMessage != nullptr) {
             *errorMessage = "地图至少需要一个终点 3";
+        }
+        return false;
+    }
+
+    if (doorCount > 0 && keyCount == 0) {
+        if (errorMessage != nullptr) {
+            *errorMessage = "地图中存在门 A，但没有钥匙 K，门将无法打开";
         }
         return false;
     }
@@ -227,7 +244,11 @@ bool LevelManager::validateLevel(const Level &level, QString *errorMessage) cons
             || TileDefs::isStart(tile)
             || TileDefs::isEnd(tile)
             || TileDefs::isDeath(tile)
-            || TileDefs::isData(tile)) {
+            || TileDefs::isData(tile)
+            || TileDefs::isKey(tile)
+            || TileDefs::isDoor(tile)
+            || TileDefs::isBounce(tile)
+            || TileDefs::isConveyor(tile)) {
 
             if (errorMessage != nullptr) {
                 *errorMessage = QString("候选编辑点不能放在 %1 上：row=%2 col=%3")

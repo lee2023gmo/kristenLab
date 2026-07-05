@@ -88,6 +88,16 @@ inline bool isLaser(QChar tile)
     return tile == Laser;
 }
 
+inline bool isKey(QChar tile)
+{
+    return tile == Key;
+}
+
+inline bool isDoor(QChar tile)
+{
+    return tile == Door;
+}
+
 inline bool isTrampoline(QChar tile)
 {
     return tile == TrampolineUpRight
@@ -184,6 +194,12 @@ inline QString nameOf(QChar tile)
     if (tile == Laser) {
         return "激光门";
     }
+    if (tile == Key) {
+        return "钥匙";
+    }
+    if (tile == Door) {
+        return "门";
+    }
     if (tile == TrampolineUpRight) {
         return "蹦床↗";
     }
@@ -217,6 +233,8 @@ inline bool isKnownTile(QChar tile)
            || tile == Conveyor
            || tile == Data
            || tile == Laser
+           || tile == Key
+           || tile == Door
            || tile == TrampolineUpRight
            || tile == TrampolineUpLeft
            || tile == TrampolineDownRight
